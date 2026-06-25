@@ -19,18 +19,18 @@
 
 const CONFIG = {
 
-  // ── Netlify Function endpoints ───────────────
+  // ── API endpoints (Vercel serverless functions) ──
   API: {
-    SQUARE:          '/.netlify/functions/square-proxy',
-    XERO:            '/.netlify/functions/xero-proxy',
-    XERO_AUTH:       '/.netlify/functions/xero-auth',
-    XERO_CLIENT_ID:  '/.netlify/functions/xero-client-id',
-    AUTH:            '/.netlify/functions/auth',
+    SQUARE:          '/api/square-proxy',
+    XERO:            '/api/xero-proxy',
+    XERO_AUTH:       '/api/xero-auth',
+    XERO_CLIENT_ID:  '/api/xero-client-id',
+    AUTH:            '/api/auth',
   },
 
   // ── Xero OAuth (public values only) ─────────
   XERO: {
-    REDIRECT_URI: 'https://spcod.netlify.app/xero-callback.html',
+    REDIRECT_URI: 'https://bizops.vercel.app/xero-callback.html',
     SCOPES: 'openid profile email offline_access accounting.contacts.read accounting.invoices.read accounting.reports.profitandloss.read payroll.employees.read payroll.timesheets',
   },
 
