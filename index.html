@@ -1,0 +1,439 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="BizOps">
+  <meta name="theme-color" content="#0A2A1F">
+  <title>BizOps</title>
+  <link rel="manifest" href="manifest.json">
+  <link rel="apple-touch-icon" href="icons/icon-192.png">
+  <link rel="stylesheet" href="css/app.css">
+  <style>
+    /* Role-based visibility — toggled by App.applyRoleUI() */
+    .manager-only { display: none; }
+    body.role-manager .manager-only { display: revert; }
+    body.role-staff   .staff-only   { display: none; }
+    /* Demo mode shows everything */
+    .manager-only { display: revert; }
+  </style>
+</head>
+<body>
+
+  <!-- App Shell -->
+  <div id="app">
+
+    <!-- Header -->
+    <header id="app-header">
+      <div class="header-inner">
+        <div class="header-left">
+          <div class="app-logo">B</div>
+          <div class="header-titles">
+            <span class="app-name">BizOps</span>
+            <span id="role-badge" style="display:none;font-size:10px;font-weight:600;padding:2px 7px;border-radius:20px;background:rgba(29,158,117,0.25);color:#1D9E75;margin-left:6px;vertical-align:middle"></span>
+            <span class="header-sub" id="header-date"></span>
+          </div>
+        </div>
+        <div class="header-right">
+          <button class="icon-btn" id="sync-btn" title="Sync data" aria-label="Sync data">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"></polyline><polyline points="1 20 1 14 7 14"></polyline><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path></svg>
+          </button>
+          <button class="icon-btn" id="settings-btn" title="Settings" aria-label="Settings">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg>
+          </button>
+        </div>
+      </div>
+    </header>
+
+    <!-- Page Container -->
+    <main id="page-container">
+
+      <!-- DASHBOARD PAGE -->
+      <section id="page-dashboard" class="page active">
+        <div class="page-scroll">
+
+          <!-- Live status bar -->
+          <div class="status-bar">
+            <div class="status-dot pulse"></div>
+            <span>Live · Square + Xero</span>
+            <span class="status-time" id="last-sync-time">Syncing…</span>
+          </div>
+
+          <!-- Today's hero metrics -->
+          <div class="hero-metrics">
+            <div class="hero-card">
+              <div class="hero-label">Today's takings</div>
+              <div class="hero-value" id="dash-takings">$0</div>
+              <div class="hero-delta" id="dash-takings-delta">—</div>
+            </div>
+            <div class="hero-card">
+              <div class="hero-label">Staff hours</div>
+              <div class="hero-value" id="dash-hours">0h</div>
+              <div class="hero-delta" id="dash-hours-sub">— staff today</div>
+            </div>
+          </div>
+
+          <!-- Cost breakdown (manager only) -->
+          <div class="section-label manager-only">Cost analysis · today</div>
+          <div class="card manager-only">
+            <div class="cost-row">
+              <div class="cost-info">
+                <div class="cost-name">Labour</div>
+                <div class="cost-sub" id="cost-labour-sub">From Square timesheets</div>
+              </div>
+              <div class="cost-right">
+                <div class="cost-amount" id="cost-labour">$—</div>
+                <div class="cost-pct" id="cost-labour-pct">—%</div>
+              </div>
+            </div>
+            <div class="cost-bar-wrap"><div class="cost-bar labour" id="bar-labour"></div></div>
+
+            <div class="cost-row">
+              <div class="cost-info">
+                <div class="cost-name">Cost of goods</div>
+                <div class="cost-sub" id="cost-cogs-sub">From Xero bills</div>
+              </div>
+              <div class="cost-right">
+                <div class="cost-amount" id="cost-cogs">$—</div>
+                <div class="cost-pct" id="cost-cogs-pct">—%</div>
+              </div>
+            </div>
+            <div class="cost-bar-wrap"><div class="cost-bar cogs" id="bar-cogs"></div></div>
+
+            <div class="cost-row">
+              <div class="cost-info">
+                <div class="cost-name">Overheads</div>
+                <div class="cost-sub">From Xero bills</div>
+              </div>
+              <div class="cost-right">
+                <div class="cost-amount" id="cost-oh">$—</div>
+                <div class="cost-pct" id="cost-oh-pct">—%</div>
+              </div>
+            </div>
+            <div class="cost-bar-wrap"><div class="cost-bar overhead" id="bar-oh"></div></div>
+
+            <div class="cost-divider"></div>
+            <div class="cost-row net-row">
+              <div class="cost-name net">Net margin</div>
+              <div class="cost-right">
+                <div class="cost-amount net" id="cost-net">$—</div>
+                <div class="cost-pct net" id="cost-net-pct">—%</div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Invoices due (manager only) -->
+          <div class="section-label manager-only">Invoices due this week</div>
+          <div class="card manager-only" id="invoices-due-list">
+            <div class="empty-state">Loading from Xero…</div>
+          </div>
+
+          <!-- Quick actions -->
+          <div class="section-label">Quick actions</div>
+          <div class="quick-actions">
+            <button class="quick-btn" onclick="App.nav('invoices')">
+              <div class="quick-icon">
+                <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="12" y1="18" x2="12" y2="12"></line><line x1="9" y1="15" x2="15" y2="15"></line></svg>
+              </div>
+              <span>Scan invoice</span>
+            </button>
+            <button class="quick-btn" onclick="App.nav('cash')">
+              <div class="quick-icon">
+                <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="6" width="20" height="12" rx="2"/><circle cx="12" cy="12" r="2"/><path d="M6 12h.01M18 12h.01"/></svg>
+              </div>
+              <span>Cash rec.</span>
+            </button>
+            <button class="quick-btn" onclick="App.nav('timesheets')">
+              <div class="quick-icon">
+                <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"></rect><line x1="16" y1="2" x2="16" y2="6"></line><line x1="8" y1="2" x2="8" y2="6"></line><line x1="3" y1="10" x2="21" y2="10"></line></svg>
+              </div>
+              <span>Timesheets</span>
+            </button>
+            <button class="quick-btn" onclick="App.nav('staff')">
+              <div class="quick-icon">
+                <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path><circle cx="9" cy="7" r="4"></circle><path d="M23 21v-2a4 4 0 0 0-3-3.87"></path><path d="M16 3.13a4 4 0 0 1 0 7.75"></path></svg>
+              </div>
+              <span>Staff map</span>
+            </button>
+          </div>
+
+          <!-- 12-week overhead average (manager only) -->
+          <div class="section-label manager-only">Overheads · 12-week avg</div>
+          <div class="card manager-only" id="overhead-card">
+            <div class="empty-state">Loading from Xero…</div>
+          </div>
+
+        </div>
+      </section>
+
+      <!-- INVOICES PAGE -->
+      <section id="page-invoices" class="page">
+        <div class="page-scroll">
+          <div class="page-hero">
+            <h1 class="page-title">Invoices</h1>
+            <p class="page-subtitle">Enter supplier bills · sync to Xero</p>
+          </div>
+
+          <div class="section-label">New invoice</div>
+          <div class="card" id="invoice-form">
+            <!-- Rendered by InvoiceModule -->
+          </div>
+
+          <div class="section-label">GST summary · today</div>
+          <div class="card" id="gst-summary">
+            <div class="empty-state">No invoices today</div>
+          </div>
+
+          <div class="section-label">Today's entries</div>
+          <div id="invoice-list">
+            <div class="empty-state">No invoices entered today</div>
+          </div>
+
+          <div class="section-label">Draft bills in Xero</div>
+          <div id="pending-xero-list">
+            <div class="empty-state">Loading from Xero…</div>
+          </div>
+        </div>
+      </section>
+
+      <!-- CASH RECONCILIATION PAGE -->
+      <section id="page-cash" class="page">
+        <div class="page-scroll">
+          <div class="page-hero">
+            <h1 class="page-title">Cash rec.</h1>
+            <p class="page-subtitle" id="cash-date-label">End of day reconciliation</p>
+          </div>
+
+          <!-- Square drawer report (auto-filled) -->
+          <div class="section-label">Square drawer report</div>
+          <div class="card">
+            <div class="drawer-row">
+              <span class="drawer-label">Starting cash</span>
+              <span class="drawer-value" id="sq-starting">$—</span>
+            </div>
+            <div class="drawer-row">
+              <span class="drawer-label">Cash sales</span>
+              <span class="drawer-value" id="sq-cash-sales">$—</span>
+            </div>
+            <div class="drawer-row">
+              <span class="drawer-label">Cash refunds</span>
+              <span class="drawer-value" id="sq-refunds">$—</span>
+            </div>
+            <div class="drawer-row">
+              <span class="drawer-label">Paid in / out</span>
+              <span class="drawer-value" id="sq-paid-inout">$—</span>
+            </div>
+            <!-- Paid in/out detail items -->
+            <div id="paid-inout-detail" style="display:none;padding:4px 0 4px 12px;border-top:1px solid var(--border);margin-top:4px"></div>
+            <div class="cost-divider"></div>
+            <div class="drawer-row">
+              <span class="drawer-label" style="font-weight:600">Expected in drawer</span>
+              <span class="drawer-value" id="sq-expected" style="font-weight:600;color:var(--green-600)">$—</span>
+            </div>
+          </div>
+
+          <!-- Notes count -->
+          <div class="section-label">Notes count ($5 and above)</div>
+          <div class="card">
+            <div class="denomination-grid" id="notes-grid"></div>
+            <div style="display:flex;justify-content:space-between;align-items:center;padding-top:8px;border-top:1px solid var(--border)">
+              <span style="font-size:13px;font-weight:500;color:var(--text-2)">Notes subtotal</span>
+              <span style="font-family:var(--mono);font-size:14px;font-weight:500;color:var(--text-1)" id="notes-subtotal">$0.00</span>
+            </div>
+          </div>
+
+          <!-- Coins count -->
+          <div class="section-label">Coins count ($2 and below)</div>
+          <div class="card">
+            <div class="denomination-grid" id="coins-grid"></div>
+            <div style="display:flex;justify-content:space-between;align-items:center;padding-top:8px;border-top:1px solid var(--border)">
+              <span style="font-size:13px;font-weight:500;color:var(--text-2)">Coins subtotal</span>
+              <span style="font-family:var(--mono);font-size:14px;font-weight:500;color:var(--text-1)" id="coins-subtotal">$0.00</span>
+            </div>
+          </div>
+
+          <!-- Result -->
+          <div class="section-label">Reconciliation result</div>
+          <div class="card">
+            <div class="drawer-row">
+              <span class="drawer-label">Actual in drawer</span>
+              <span class="drawer-value" id="actual-in-drawer">$0.00</span>
+            </div>
+            <div class="drawer-row">
+              <span class="drawer-label">Expected in drawer</span>
+              <span class="drawer-value" id="sq-expected-2">—</span>
+            </div>
+            <div class="cost-divider"></div>
+            <div class="drawer-row">
+              <span class="drawer-label" style="font-weight:600">Difference</span>
+              <div class="read-field" id="cash-difference" data-state="neutral" style="flex:0;min-width:140px;justify-content:flex-end">—</div>
+            </div>
+          </div>
+
+          <!-- Notes -->
+          <div class="section-label">Notes</div>
+          <div class="card">
+            <textarea class="field-textarea" id="cash-notes"
+              placeholder="Any discrepancies or notes for the manager…" rows="3"></textarea>
+          </div>
+
+          <button class="primary-btn full-btn" id="save-cash-btn">Save reconciliation</button>
+
+          <div class="section-label">Previous reconciliations</div>
+          <div id="cash-history">
+            <div class="empty-state">No previous records</div>
+          </div>
+
+        </div>
+      </section>
+
+      <!-- TIMESHEETS PAGE -->
+      <section id="page-timesheets" class="page">
+        <div class="page-scroll">
+          <div class="page-hero">
+            <h1 class="page-title">Timesheets</h1>
+            <p class="page-subtitle">Review Square hours · push to Xero</p>
+          </div>
+
+          <!-- Week selector -->
+          <div class="week-selector">
+            <button class="week-nav-btn" id="ts-prev-week" aria-label="Previous week">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"></polyline></svg>
+            </button>
+            <div class="week-info" id="ts-week-label">Loading…</div>
+            <button class="week-nav-btn" id="ts-next-week" aria-label="Next week">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"></polyline></svg>
+            </button>
+          </div>
+
+          <!-- Week summary -->
+          <div class="hero-metrics" style="margin-top:0">
+            <div class="hero-card">
+              <div class="hero-label">Total hours</div>
+              <div class="hero-value" id="ts-total-hours">—</div>
+              <div class="hero-delta" id="ts-staff-count">— staff</div>
+            </div>
+            <div class="hero-card">
+              <div class="hero-label">Est. labour cost</div>
+              <div class="hero-value" id="ts-labour-cost">$—</div>
+              <div class="hero-delta" id="ts-avg-rate">avg —/hr</div>
+            </div>
+          </div>
+
+          <!-- Staff timesheet list -->
+          <div class="section-label">Staff hours this week</div>
+          <div id="ts-staff-list">
+            <div class="empty-state">Loading from Square…</div>
+          </div>
+
+          <!-- Public holiday alert -->
+          <div id="ph-alert" class="alert-box" style="display:none"></div>
+
+          <!-- Push button -->
+          <div class="push-section manager-only">
+            <div class="push-status" id="push-status">Not yet sent to Xero this week</div>
+            <button class="primary-btn full-btn" id="push-xero-btn">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="22" y1="2" x2="11" y2="13"></line><polygon points="22 2 15 22 11 13 2 9 22 2"></polygon></svg>
+              Push timesheets to Xero
+            </button>
+          </div>
+
+        </div>
+      </section>
+
+      <!-- STAFF MAPPING PAGE -->
+      <section id="page-staff" class="page">
+        <div class="page-scroll">
+          <div class="page-hero">
+            <h1 class="page-title">Staff mapping</h1>
+            <p class="page-subtitle">Payroll categories · Fast Food Award</p>
+          </div>
+
+          <div class="section-label">Employees</div>
+          <div id="staff-list">
+            <div class="empty-state">Loading staff…</div>
+          </div>
+        </div>
+      </section>
+
+    </main>
+
+    <!-- Bottom navigation -->
+    <nav id="bottom-nav">
+      <button class="nav-item active" data-page="dashboard">
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7"></rect><rect x="14" y="3" width="7" height="7"></rect><rect x="14" y="14" width="7" height="7"></rect><rect x="3" y="14" width="7" height="7"></rect></svg>
+        <span>Dashboard</span>
+      </button>
+      <button class="nav-item" data-page="invoices">
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline></svg>
+        <span>Invoices</span>
+      </button>
+      <button class="nav-item" data-page="cash">
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="6" width="20" height="12" rx="2"/><circle cx="12" cy="12" r="2"/></svg>
+        <span>Cash rec.</span>
+      </button>
+      <button class="nav-item" data-page="timesheets">
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 16 14"></polyline></svg>
+        <span>Timesheets</span>
+      </button>
+      <button class="nav-item" data-page="staff">
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path><circle cx="9" cy="7" r="4"></circle><path d="M23 21v-2a4 4 0 0 0-3-3.87"></path><path d="M16 3.13a4 4 0 0 1 0 7.75"></path></svg>
+        <span>Staff</span>
+      </button>
+    </nav>
+
+  </div>
+
+  <!-- MODALS -->
+
+
+  <!-- Staff profile modal -->
+  <div id="modal-staff-profile" class="modal" role="dialog" aria-modal="true" aria-label="Staff profile">
+    <div class="modal-sheet">
+      <div class="modal-handle"></div>
+      <div class="modal-header">
+        <h2 class="modal-title" id="staff-modal-title">Staff profile</h2>
+        <button class="modal-close" id="close-staff-modal" aria-label="Close">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+        </button>
+      </div>
+      <div class="modal-body" id="staff-modal-body"></div>
+    </div>
+  </div>
+
+  <!-- Settings modal -->
+  <div id="modal-settings" class="modal" role="dialog" aria-modal="true" aria-label="Settings">
+    <div class="modal-sheet">
+      <div class="modal-handle"></div>
+      <div class="modal-header">
+        <h2 class="modal-title">Settings</h2>
+        <button class="modal-close" id="close-settings-modal" aria-label="Close">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+        </button>
+      </div>
+      <div class="modal-body" id="settings-modal-body"></div>
+    </div>
+  </div>
+
+  <!-- Toast notifications -->
+  <div id="toast-container" aria-live="polite"></div>
+
+  <!-- Hidden file input for invoice photos -->
+  <input type="file" id="invoice-file-input" accept="image/*" style="display:none">
+
+  <script src="js/config.js"></script>
+  <script src="js/auth.js"></script>
+  <script src="js/store.js"></script>
+  <script src="js/api-square.js"></script>
+  <script src="js/api-xero.js"></script>
+  <script src="js/holidays.js"></script>
+  <script src="js/invoices.js"></script>
+  <script src="js/staff.js"></script>
+  <script src="js/cash.js"></script>
+  <script src="js/timesheets.js"></script>
+  <script src="js/dashboard.js"></script>
+  <script src="js/app.js"></script>
+</body>
+</html>

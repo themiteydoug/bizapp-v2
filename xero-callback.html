@@ -1,0 +1,117 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Connecting Xero…</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: -apple-system, sans-serif;
+      background: #0A2A1F; color: #fff;
+      height: 100dvh;
+      display: flex; align-items: center; justify-content: center;
+      flex-direction: column; gap: 16px; padding: 24px; text-align: center;
+    }
+    .logo { width: 56px; height: 56px; background: #1D9E75; border-radius: 14px; display: flex; align-items: center; justify-content: center; font-size: 24px; font-weight: 600; margin-bottom: 8px; }
+    h1 { font-size: 20px; font-weight: 600; }
+    p  { font-size: 14px; color: #9FE1CB; line-height: 1.6; max-width: 300px; }
+    .spinner { width: 32px; height: 32px; border: 3px solid rgba(255,255,255,0.2); border-top-color: #1D9E75; border-radius: 50%; animation: spin 0.8s linear infinite; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .error { background: rgba(201,53,53,0.2); border: 1px solid #C93535; border-radius: 12px; padding: 14px; font-size: 13px; color: #F9AAAA; max-width: 320px; display: none; }
+    .success-icon { font-size: 48px; display: none; }
+    code { background: rgba(255,255,255,0.1); padding: 4px 10px; border-radius: 6px; font-size: 12px; word-break: break-all; display: inline-block; margin-top: 6px; }
+  </style>
+</head>
+<body>
+  <div class="logo">B</div>
+  <div class="spinner" id="spinner"></div>
+  <div class="success-icon" id="icon">✓</div>
+  <h1 id="title">Connecting to Xero…</h1>
+  <p id="msg">Please wait.</p>
+  <div class="error" id="err"></div>
+
+  <script>
+    // Must match APP_ORIGIN in Netlify env — used for postMessage target origin
+    const APP_ORIGIN = window.location.origin;
+
+    async function handleCallback() {
+      const params = new URLSearchParams(window.location.search);
+      const code  = params.get('code');
+      const error = params.get('error');
+
+      if (error) { showError('Xero error: ' + (params.get('error_description') || error)); return; }
+      if (!code)  { showError('No authorisation code received. Please try again.'); return; }
+
+      try {
+        // Exchange code for tokens via Netlify Function (client_secret stays server-side)
+        const res = await fetch('/.netlify/functions/xero-auth', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ action: 'exchange', code }),
+        });
+
+        if (!res.ok) {
+          const err = await res.json();
+          showError('Auth failed: ' + (err.description || err.error || res.status));
+          return;
+        }
+
+        const data = await res.json();
+
+        // Post the full token set to the main app window so it can store them.
+        // We do NOT store tokens here — this is a throwaway popup.
+        // The main app's XeroAPI.setupCallbackListener() receives this message.
+        const payload = {
+          type:          'XERO_AUTH_SUCCESS',
+          access_token:  data.access_token,
+          refresh_token: data.refresh_token,
+          expires_in:    data.expires_in,
+          tenantId:      data.tenantId,
+          tenantName:    data.tenantName,
+        };
+
+        let sent = false;
+        try {
+          if (window.opener && !window.opener.closed) {
+            window.opener.postMessage(payload, APP_ORIGIN);
+            sent = true;
+          }
+        } catch (e) {
+          // opener may be cross-origin in some redirect scenarios
+        }
+
+        // Show success
+        document.getElementById('spinner').style.display = 'none';
+        document.getElementById('icon').style.display = 'block';
+        document.getElementById('title').textContent = 'Xero connected!';
+
+        let detail = `Connected to <strong>${data.tenantName || 'your organisation'}</strong>.`;
+        if (data.tenantId) {
+          detail += `<br><br>Tenant ID (copy into Netlify env var XERO_TENANT_ID):<br><code>${data.tenantId}</code>`;
+        }
+        if (!sent) {
+          detail += `<br><br><em>If the main app didn't update, close this window and refresh the app.</em>`;
+        }
+        detail += `<br><br>This window will close in 5 seconds.`;
+        document.getElementById('msg').innerHTML = detail;
+
+        setTimeout(() => { try { window.close(); } catch (e) {} }, 5000);
+
+      } catch (err) {
+        showError('Unexpected error: ' + err.message);
+      }
+    }
+
+    function showError(msg) {
+      document.getElementById('spinner').style.display = 'none';
+      document.getElementById('title').textContent = 'Connection failed';
+      document.getElementById('msg').textContent = 'Close this window and try again from Settings.';
+      const el = document.getElementById('err');
+      el.textContent = msg; el.style.display = 'block';
+    }
+
+    handleCallback();
+  </script>
+</body>
+</html>
