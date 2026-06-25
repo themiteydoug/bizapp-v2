@@ -1,59 +1,49 @@
 /**
- * Netlify Function: xero-auth
+ * Vercel Function: xero-auth
  * Handles Xero OAuth 2.0 token exchange and refresh server-side.
  * The CLIENT_SECRET never reaches the browser.
  *
- * Environment variables required (set in Netlify dashboard):
+ * Environment variables required (set in Vercel dashboard):
  *   XERO_CLIENT_ID      — your Xero app client ID
  *   XERO_CLIENT_SECRET  — your Xero app client secret
- *   XERO_REDIRECT_URI   — https://spcod.netlify.app/xero-callback.html
- *   APP_ORIGIN          — https://spcod.netlify.app
+ *   XERO_REDIRECT_URI   — https://bizapp-v2.vercel.app/xero-callback.html
+ *   APP_ORIGIN          — https://bizapp-v2.vercel.app
  */
 
-const ALLOWED_ORIGIN = process.env.APP_ORIGIN || 'https://spcod.netlify.app';
+const ALLOWED_ORIGIN = process.env.APP_ORIGIN || 'https://bizapp-v2.vercel.app';
 
-const corsHeaders = {
-  'Access-Control-Allow-Origin': ALLOWED_ORIGIN,
-  'Access-Control-Allow-Methods': 'POST, OPTIONS',
-  'Access-Control-Allow-Headers': 'Content-Type',
-};
+function setCors(res) {
+  res.setHeader('Access-Control-Allow-Origin', ALLOWED_ORIGIN);
+  res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+}
 
-exports.handler = async (event) => {
-  if (event.httpMethod === 'OPTIONS') {
-    return { statusCode: 204, headers: corsHeaders, body: '' };
-  }
+module.exports = async (req, res) => {
+  setCors(res);
 
-  if (event.httpMethod !== 'POST') {
-    return { statusCode: 405, headers: corsHeaders, body: JSON.stringify({ error: 'Method not allowed' }) };
-  }
+  if (req.method === 'OPTIONS') return res.status(204).end();
+  if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
 
-  let body;
-  try {
-    body = JSON.parse(event.body);
-  } catch {
-    return { statusCode: 400, headers: corsHeaders, body: JSON.stringify({ error: 'Invalid JSON body' }) };
-  }
-
+  const body = typeof req.body === 'string' ? JSON.parse(req.body) : (req.body || {});
   const { action, code, refresh_token } = body;
 
   if (!['exchange', 'refresh'].includes(action)) {
-    return { statusCode: 400, headers: corsHeaders, body: JSON.stringify({ error: 'Invalid action' }) };
+    return res.status(400).json({ error: 'Invalid action' });
   }
 
   try {
-    // Build token request
     const tokenParams = {
       client_id:     process.env.XERO_CLIENT_ID,
       client_secret: process.env.XERO_CLIENT_SECRET,
     };
 
     if (action === 'exchange') {
-      if (!code) return { statusCode: 400, headers: corsHeaders, body: JSON.stringify({ error: 'Missing code' }) };
-      tokenParams.grant_type    = 'authorization_code';
-      tokenParams.code          = code;
-      tokenParams.redirect_uri  = process.env.XERO_REDIRECT_URI;
+      if (!code) return res.status(400).json({ error: 'Missing code' });
+      tokenParams.grant_type   = 'authorization_code';
+      tokenParams.code         = code;
+      tokenParams.redirect_uri = process.env.XERO_REDIRECT_URI;
     } else {
-      if (!refresh_token) return { statusCode: 400, headers: corsHeaders, body: JSON.stringify({ error: 'Missing refresh_token' }) };
+      if (!refresh_token) return res.status(400).json({ error: 'Missing refresh_token' });
       tokenParams.grant_type    = 'refresh_token';
       tokenParams.refresh_token = refresh_token;
     }
@@ -67,11 +57,7 @@ exports.handler = async (event) => {
 
     if (!tokenRes.ok) {
       const err = await tokenRes.json();
-      return {
-        statusCode: tokenRes.status,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ error: err.error, description: err.error_description }),
-      };
+      return res.status(tokenRes.status).json({ error: err.error, description: err.error_description });
     }
 
     const tokens = await tokenRes.json();
@@ -93,23 +79,15 @@ exports.handler = async (event) => {
     }
 
     // Return tokens to browser — but NOT the client secret (it never leaves this function)
-    return {
-      statusCode: 200,
-      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        access_token:  tokens.access_token,
-        refresh_token: tokens.refresh_token,
-        expires_in:    tokens.expires_in,
-        tenantId,
-        tenantName,
-      }),
-    };
+    return res.status(200).json({
+      access_token:  tokens.access_token,
+      refresh_token: tokens.refresh_token,
+      expires_in:    tokens.expires_in,
+      tenantId,
+      tenantName,
+    });
 
   } catch (err) {
-    return {
-      statusCode: 500,
-      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ error: 'Token exchange failed', detail: err.message }),
-    };
+    return res.status(500).json({ error: 'Token exchange failed', detail: err.message });
   }
 };

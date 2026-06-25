@@ -1,13 +1,13 @@
 /**
- * Netlify Function: square-proxy
+ * Vercel Function: square-proxy
  * Proxies all Square API calls server-side so the access token
  * never reaches the browser.
  *
- * Environment variables required (set in Netlify dashboard):
+ * Environment variables required (set in Vercel dashboard):
  *   SQUARE_ACCESS_TOKEN   — your Square production access token
  *   SQUARE_LOCATION_ID    — your Square location ID
  *   SQUARE_ENVIRONMENT    — 'production' or 'sandbox'
- *   APP_ORIGIN            — https://spcod.netlify.app
+ *   APP_ORIGIN            — https://bizapp-v2.vercel.app
  */
 
 const SQUARE_BASE = process.env.SQUARE_ENVIRONMENT === 'sandbox'
@@ -22,39 +22,28 @@ const ALLOWED_ENDPOINTS = [
   '/locations',
 ];
 
-exports.handler = async (event) => {
-  // CORS — only allow requests from the app origin
-  const origin = event.headers.origin || event.headers.Origin || '';
-  const allowedOrigin = process.env.APP_ORIGIN || 'https://spcod.netlify.app';
+const ALLOWED_ORIGIN = process.env.APP_ORIGIN || 'https://bizapp-v2.vercel.app';
 
-  const corsHeaders = {
-    'Access-Control-Allow-Origin': allowedOrigin,
-    'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
-    'Access-Control-Allow-Headers': 'Content-Type',
-    'Access-Control-Max-Age': '86400',
-  };
+function setCors(res) {
+  res.setHeader('Access-Control-Allow-Origin', ALLOWED_ORIGIN);
+  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+  res.setHeader('Access-Control-Max-Age', '86400');
+}
 
-  // Handle preflight
-  if (event.httpMethod === 'OPTIONS') {
-    return { statusCode: 204, headers: corsHeaders, body: '' };
-  }
+module.exports = async (req, res) => {
+  setCors(res);
 
-  // Only allow GET and POST
-  if (!['GET', 'POST'].includes(event.httpMethod)) {
-    return { statusCode: 405, headers: corsHeaders, body: JSON.stringify({ error: 'Method not allowed' }) };
-  }
+  if (req.method === 'OPTIONS') return res.status(204).end();
+  if (!['GET', 'POST'].includes(req.method)) return res.status(405).json({ error: 'Method not allowed' });
 
   // Parse the target endpoint from query string
-  const endpoint = event.queryStringParameters?.endpoint;
-  if (!endpoint) {
-    return { statusCode: 400, headers: corsHeaders, body: JSON.stringify({ error: 'Missing endpoint parameter' }) };
-  }
+  const endpoint = req.query.endpoint;
+  if (!endpoint) return res.status(400).json({ error: 'Missing endpoint parameter' });
 
   // Whitelist check — only allow known Square endpoints
   const isAllowed = ALLOWED_ENDPOINTS.some(e => endpoint.startsWith(e));
-  if (!isAllowed) {
-    return { statusCode: 403, headers: corsHeaders, body: JSON.stringify({ error: 'Endpoint not permitted' }) };
-  }
+  if (!isAllowed) return res.status(403).json({ error: 'Endpoint not permitted' });
 
   // Inject location ID for endpoints that need it
   let targetEndpoint = endpoint;
@@ -62,9 +51,11 @@ exports.handler = async (event) => {
     targetEndpoint = endpoint.replace('{LOCATION_ID}', process.env.SQUARE_LOCATION_ID);
   }
 
-  // Inject location_id into query params where needed (server-side only)
-  let queryParams = event.queryStringParameters ? { ...event.queryStringParameters } : {};
+  // Build upstream query string (strip our routing params)
+  const queryParams = { ...req.query };
   delete queryParams.endpoint;
+
+  // Inject location_id server-side where needed
   if (
     (endpoint.startsWith('/cash-drawers') || endpoint.startsWith('/labor/shifts')) &&
     !queryParams.location_id
@@ -79,20 +70,21 @@ exports.handler = async (event) => {
   const url = `${SQUARE_BASE}${targetEndpoint}${queryString}`;
 
   // For orders/search POST: inject location_ids into body if missing
-  let requestBody = event.body || undefined;
-  if (endpoint === '/orders/search' && event.httpMethod === 'POST' && event.body) {
-    try {
-      const parsed = JSON.parse(event.body);
-      if (!parsed.location_ids?.length) {
-        parsed.location_ids = [process.env.SQUARE_LOCATION_ID];
-      }
-      requestBody = JSON.stringify(parsed);
-    } catch (_) { /* leave body as-is */ }
+  // req.body is pre-parsed by Vercel for application/json requests
+  let requestBody;
+  if (endpoint === '/orders/search' && req.method === 'POST' && req.body) {
+    const parsed = typeof req.body === 'string' ? JSON.parse(req.body) : req.body;
+    if (!parsed.location_ids?.length) {
+      parsed.location_ids = [process.env.SQUARE_LOCATION_ID];
+    }
+    requestBody = JSON.stringify(parsed);
+  } else if (req.body) {
+    requestBody = typeof req.body === 'string' ? req.body : JSON.stringify(req.body);
   }
 
   try {
     const response = await fetch(url, {
-      method: event.httpMethod,
+      method: req.method,
       headers: {
         'Authorization': `Bearer ${process.env.SQUARE_ACCESS_TOKEN}`,
         'Content-Type': 'application/json',
@@ -102,17 +94,8 @@ exports.handler = async (event) => {
     });
 
     const data = await response.json();
-
-    return {
-      statusCode: response.status,
-      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      body: JSON.stringify(data),
-    };
+    return res.status(response.status).json(data);
   } catch (err) {
-    return {
-      statusCode: 500,
-      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ error: 'Square API request failed', detail: err.message }),
-    };
+    return res.status(500).json({ error: 'Square API request failed', detail: err.message });
   }
 };
