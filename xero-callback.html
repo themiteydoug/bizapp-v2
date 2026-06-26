@@ -59,44 +59,35 @@
 
         const data = await res.json();
 
-        // Post the full token set to the main app window so it can store them.
-        // We do NOT store tokens here — this is a throwaway popup.
-        // The main app's XeroAPI.setupCallbackListener() receives this message.
-        const payload = {
-          type:          'XERO_AUTH_SUCCESS',
+        // Write tokens directly to localStorage under the same keys the app uses.
+        // This works because xero-callback.html is same-origin as the main app,
+        // so they share localStorage (especially important for iOS PWA).
+        localStorage.setItem('bizops_xero_tokens', JSON.stringify({
           access_token:  data.access_token,
           refresh_token: data.refresh_token,
           expires_in:    data.expires_in,
-          tenantId:      data.tenantId,
-          tenantName:    data.tenantName,
-        };
+          savedAt:       Date.now(),
+        }));
+        if (data.tenantId) {
+          localStorage.setItem('bizops_xero_tenant', data.tenantId);
+        }
 
-        // Write tokens to localStorage — main window picks them up via storage event
-        // (more reliable than postMessage when Xero's COOP headers null window.opener)
-        try {
-          localStorage.setItem('bizops_xero_pending', JSON.stringify(payload));
-        } catch (e) {}
-
-        // Also try postMessage as a secondary channel
-        try {
-          if (window.opener && !window.opener.closed) {
-            window.opener.postMessage(payload, APP_ORIGIN);
-          }
-        } catch (e) {}
-
-        // Show success
+        // Show success briefly, then redirect back to the main app
         document.getElementById('spinner').style.display = 'none';
         document.getElementById('icon').style.display = 'block';
         document.getElementById('title').textContent = 'Xero connected!';
 
         let detail = `Connected to <strong>${data.tenantName || 'your organisation'}</strong>.`;
         if (data.tenantId) {
-          detail += `<br><br>Tenant ID (copy into Vercel env var XERO_TENANT_ID):<br><code>${data.tenantId}</code>`;
+          detail += `<br><br>Tenant ID (copy into Vercel env var XERO_TENANT_ID if not already set):<br><code>${data.tenantId}</code>`;
         }
-        detail += `<br><br>This window will close in 5 seconds.`;
+        detail += `<br><br>Returning to app…`;
         document.getElementById('msg').innerHTML = detail;
 
-        setTimeout(() => { try { window.close(); } catch (e) {} }, 5000);
+        // Redirect back — query param tells the app to show a success toast
+        const returnUrl = '/?xero_connected=1'
+          + (data.tenantName ? '&org=' + encodeURIComponent(data.tenantName) : '');
+        setTimeout(() => { window.location.href = returnUrl; }, 2000);
 
       } catch (err) {
         showError('Unexpected error: ' + err.message);

@@ -244,8 +244,9 @@ const App = (() => {
   // ── Boot ──────────────────────────────────────
 
   async function boot() {
-    // Set up Xero OAuth callback listener BEFORE auth init
-    XeroAPI.setupCallbackListener();
+    // Check if we just returned from Xero OAuth redirect
+    XeroAPI.checkOAuthReturn();
+    XeroAPI.setupCallbackListener(); // no-op now, kept for safety
 
     await Auth.init();
 

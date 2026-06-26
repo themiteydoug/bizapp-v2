@@ -108,9 +108,9 @@ const XeroAPI = (() => {
   // ── OAuth flow ────────────────────────────────
 
   /**
-   * Opens Xero OAuth in a popup.
-   * Fetches the CLIENT_ID from the server (it's public, not a secret).
-   * On success the popup posts XERO_AUTH_SUCCESS to this window.
+   * Redirects the whole page to Xero OAuth.
+   * Using full-page redirect (not a popup) so that iOS PWA localStorage
+   * is shared between the auth callback page and the main app.
    */
   async function startOAuthFlow() {
     try {
@@ -119,6 +119,8 @@ const XeroAPI = (() => {
       const { client_id } = await r.json();
 
       const state = crypto.randomUUID();
+      localStorage.setItem('bizops_xero_state', state);
+
       const params = new URLSearchParams({
         response_type: 'code',
         client_id,
@@ -127,78 +129,35 @@ const XeroAPI = (() => {
         state,
       });
 
-      const authUrl = `https://login.xero.com/identity/connect/authorize?${params}`;
-
-      // Open popup — callback will write tokens to localStorage
-      const popup = window.open(authUrl, 'xero-auth',
-        'width=520,height=680,left=200,top=100,scrollbars=yes');
-
-      if (!popup) {
-        throw new Error('Popup blocked — please allow popups for this site and try again');
-      }
-
-      // Poll localStorage every 500ms for the token written by xero-callback.html.
-      // Storage events are unreliable when Xero's COOP headers break the browsing
-      // context group, so polling is the authoritative mechanism here.
-      const pollTimer = setInterval(() => {
-        try {
-          const pending = localStorage.getItem('bizops_xero_pending');
-          if (pending) {
-            clearInterval(pollTimer);
-            const payload = JSON.parse(pending);
-            if (payload?.type === 'XERO_AUTH_SUCCESS') {
-              localStorage.removeItem('bizops_xero_pending');
-              handleXeroTokenPayload(payload);
-            }
-            return;
-          }
-        } catch (_) {}
-        // Stop polling once the popup closes (user cancelled or flow complete)
-        if (popup.closed) clearInterval(pollTimer);
-      }, 500);
-
-      // Hard stop after 10 minutes
-      setTimeout(() => clearInterval(pollTimer), 10 * 60 * 1000);
-
+      window.location.href =
+        `https://login.xero.com/identity/connect/authorize?${params}`;
     } catch (e) {
       if (window.App) App.toast('Xero: ' + e.message, 'error');
-      else alert('Xero: ' + e.message);
     }
   }
 
   /**
-   * Listens for the postMessage from xero-callback.html after OAuth completes.
-   * Must be called once at app boot (done in App.boot).
+   * Called on app boot — checks if we just returned from Xero OAuth.
+   * xero-callback.html writes tokens directly to localStorage then
+   * redirects here with ?xero_connected=1.
    */
-  function handleXeroTokenPayload({ access_token, refresh_token, expires_in, tenantId, tenantName }) {
-    Store.saveXeroTokens({ access_token, refresh_token, expires_in });
-    if (tenantId) sessionStorage.setItem('bizops_xero_tenant', tenantId);
+  function checkOAuthReturn() {
+    const params = new URLSearchParams(window.location.search);
+    if (params.get('xero_connected') !== '1') return;
+
+    // Tokens were already written to localStorage by xero-callback.html
+    const org = params.get('org') ? decodeURIComponent(params.get('org')) : '';
+    history.replaceState({}, '', '/');
+
     if (window.App) {
-      App.toast(`Xero connected${tenantName ? ' · ' + tenantName : ''}`, 'success');
+      App.toast(`Xero connected${org ? ' · ' + org : ''}`, 'success');
       App.refreshSettings?.();
       setTimeout(() => { if (window.Dashboard) Dashboard.refresh(); }, 300);
     }
   }
 
-  function setupCallbackListener() {
-    // Primary: postMessage from popup (may be blocked by Xero's COOP headers)
-    window.addEventListener('message', (event) => {
-      if (event.origin !== window.location.origin) return;
-      if (event.data?.type !== 'XERO_AUTH_SUCCESS') return;
-      handleXeroTokenPayload(event.data);
-    });
-
-    // Fallback: localStorage storage event (fires when callback popup writes tokens)
-    window.addEventListener('storage', (event) => {
-      if (event.key !== 'bizops_xero_pending' || !event.newValue) return;
-      try {
-        const payload = JSON.parse(event.newValue);
-        if (payload?.type !== 'XERO_AUTH_SUCCESS') return;
-        localStorage.removeItem('bizops_xero_pending');
-        handleXeroTokenPayload(payload);
-      } catch (e) {}
-    });
-  }
+  // Keep for backward compatibility — no-op now that we use redirect flow
+  function setupCallbackListener() {}
 
   function isConnected() {
     if (CONFIG.FEATURES.DEMO_MODE) return true;
