@@ -250,22 +250,25 @@ const SquareAPI = (() => {
   async function getWeeklyPayouts(weekStart, weekEnd) {
     if (CONFIG.FEATURES.DEMO_MODE) {
       await delay(400);
-      return { cash: 1072.20, card: 5991.85, refunds: 0, entries: [] };
+      return { cash: 1072.20, card: 5991.85, refunds: 0, payoutCount: 1, entryCount: 0 };
     }
-    // Brisbane week boundaries converted to UTC ISO strings
+    // Brisbane week boundaries as ISO 8601 with offset
     const beginTime = weekStart + 'T00:00:00+10:00';
     const endTime   = weekEnd   + 'T23:59:59+10:00';
 
-    const listData = await proxyFetch(
-      `/payouts?begin_time=${encodeURIComponent(beginTime)}&end_time=${encodeURIComponent(endTime)}&count=200`
-    );
+    // List payouts for the week — pass date params via extraParams so they're not double-encoded
+    const listData = await proxyFetch('/payouts', 'GET', null, {
+      begin_time: beginTime,
+      end_time:   endTime,
+      count:      200,
+    });
     const payouts = listData.payouts || [];
-    if (!payouts.length) return { cash: 0, card: 0, refunds: 0, entries: [] };
+    if (!payouts.length) return { cash: 0, card: 0, refunds: 0, payoutCount: 0, entryCount: 0 };
 
     // Fetch entries for all payouts in parallel
     const entryResults = await Promise.all(
       payouts.map(p =>
-        proxyFetch(`/payouts/${p.id}/payout-entries?count=200`)
+        proxyFetch(`/payouts/${p.id}/payout-entries`, 'GET', null, { count: 200 })
           .then(d => d.payout_entries || [])
           .catch(() => [])
       )
@@ -273,16 +276,19 @@ const SquareAPI = (() => {
 
     const allEntries = entryResults.flat();
 
-    // Tally by type — Square entry types: CHARGE (card), REFUND, WITHDRAWAL (cash pickup)
+    // Tally by type — log raw types on first run so we can verify the mapping
+    const typeSeen = {};
     let cash = 0, card = 0, refunds = 0;
     allEntries.forEach(e => {
       const amt = (e.amount_money?.amount || 0) / 100;
+      typeSeen[e.type] = (typeSeen[e.type] || 0) + 1;
       switch (e.type) {
         case 'CHARGE':     card    += amt; break;
-        case 'WITHDRAWAL': cash    += amt; break;
+        case 'WITHDRAWAL': cash    += Math.abs(amt); break;
         case 'REFUND':     refunds += Math.abs(amt); break;
       }
     });
+    console.log('[Square payouts] entry types seen:', typeSeen, '| cash:', cash, 'card:', card, 'refunds:', refunds);
 
     return { cash, card, refunds, payoutCount: payouts.length, entryCount: allEntries.length };
   }
