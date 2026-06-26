@@ -121,6 +121,17 @@ const XeroAPI = (() => {
       const state = crypto.randomUUID();
       localStorage.setItem('bizops_xero_state', state);
 
+      // Back up the PIN session to localStorage so it survives the redirect
+      // (sessionStorage is cleared on navigation; localStorage persists)
+      const sessionBackup = {
+        token:  sessionStorage.getItem('bizops_session_token'),
+        expiry: sessionStorage.getItem('bizops_session_expiry'),
+        role:   sessionStorage.getItem('bizops_session_role'),
+      };
+      if (sessionBackup.token) {
+        localStorage.setItem('bizops_session_backup', JSON.stringify(sessionBackup));
+      }
+
       const params = new URLSearchParams({
         response_type: 'code',
         client_id,
@@ -145,15 +156,32 @@ const XeroAPI = (() => {
     const params = new URLSearchParams(window.location.search);
     if (params.get('xero_connected') !== '1') return;
 
+    // Restore the PIN session that was backed up before the Xero redirect
+    try {
+      const backup = localStorage.getItem('bizops_session_backup');
+      if (backup) {
+        const { token, expiry, role } = JSON.parse(backup);
+        if (token) {
+          sessionStorage.setItem('bizops_session_token', token);
+          sessionStorage.setItem('bizops_session_expiry', expiry);
+          sessionStorage.setItem('bizops_session_role',   role);
+        }
+        localStorage.removeItem('bizops_session_backup');
+      }
+    } catch (_) {}
+
     // Tokens were already written to localStorage by xero-callback.html
     const org = params.get('org') ? decodeURIComponent(params.get('org')) : '';
     history.replaceState({}, '', '/');
 
-    if (window.App) {
-      App.toast(`Xero connected${org ? ' · ' + org : ''}`, 'success');
-      App.refreshSettings?.();
-      setTimeout(() => { if (window.Dashboard) Dashboard.refresh(); }, 300);
-    }
+    // Show toast + refresh settings after App is fully booted (called at end of boot)
+    setTimeout(() => {
+      if (window.App) {
+        App.toast(`Xero connected${org ? ' · ' + org : ''}`, 'success');
+        App.refreshSettings?.();
+      }
+      if (window.Dashboard) Dashboard.refresh();
+    }, 500);
   }
 
   // Keep for backward compatibility — no-op now that we use redirect flow
@@ -466,6 +494,7 @@ const XeroAPI = (() => {
   return {
     setupCallbackListener,
     startOAuthFlow,
+    checkOAuthReturn,
     isConnected,
     getDraftBills,
     createDraftBill,
