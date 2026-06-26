@@ -74,26 +74,22 @@ const SquareAPI = (() => {
   async function fetchTakingsReal(dateStr) {
     const startAt = dateStr + 'T00:00:00+10:00';
     const endAt   = dateStr + 'T23:59:59+10:00';
-    const filter = { date_time_filter: { created_at: { start_at: startAt, end_at: endAt } } };
     // location_ids injected server-side by square-proxy
-    const [salesData, refundData] = await Promise.all([
-      proxyFetch('/orders/search', 'POST', { query: { filter: { ...filter, state_filter: { states: ['COMPLETED'] } } } }),
-      proxyFetch('/orders/search', 'POST', { query: { filter: { ...filter, state_filter: { states: ['REFUNDED'] } } } }),
-    ]);
+    const data = await proxyFetch('/orders/search', 'POST', {
+      query: {
+        filter: {
+          date_time_filter: { created_at: { start_at: startAt, end_at: endAt } },
+          state_filter: { states: ['COMPLETED'] },
+        },
+      },
+    });
+    const orders = data.orders || [];
     let total = 0, cash = 0, card = 0;
-    (salesData.orders || []).forEach(o => {
+    orders.forEach(o => {
       total += (o.total_money?.amount || 0) / 100;
       (o.tenders || []).forEach(t => {
         if (t.type === 'CASH') cash += (t.amount_money?.amount || 0) / 100;
         else card += (t.amount_money?.amount || 0) / 100;
-      });
-    });
-    // Subtract refunds to match Square's net figures
-    (refundData.orders || []).forEach(o => {
-      total -= (o.total_money?.amount || 0) / 100;
-      (o.tenders || []).forEach(t => {
-        if (t.type === 'CASH') cash -= (t.amount_money?.amount || 0) / 100;
-        else card -= (t.amount_money?.amount || 0) / 100;
       });
     });
     return {
@@ -101,7 +97,7 @@ const SquareAPI = (() => {
       total: Math.round(total),
       card: Math.round(card),
       cash: Math.round(cash),
-      transactions: (salesData.orders || []).length,
+      transactions: orders.length,
     };
   }
 
