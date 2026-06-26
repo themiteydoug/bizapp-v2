@@ -247,31 +247,51 @@ const CashModule = (() => {
         <div class="empty-state">Loading…</div>
       </div>
 
-      <!-- Square weekly totals -->
-      <div class="section-label">Square weekly totals (inc GST)</div>
+      <!-- Square cash total -->
+      <div class="section-label">Square cash report</div>
       <div class="card">
-        <div class="drawer-row"><span class="drawer-label">Cash sales</span><span class="drawer-val" id="wk-sq-cash">$—</span></div>
-        <div class="drawer-row"><span class="drawer-label">Card sales</span><span class="drawer-val" id="wk-sq-card">$—</span></div>
-        <div class="cost-divider"></div>
         <div class="drawer-row">
-          <span class="drawer-label" style="font-weight:600">Total sales</span>
-          <span class="drawer-val" id="wk-sq-total" style="font-weight:600;color:var(--green-600)">$—</span>
+          <span class="drawer-label">Cash sales (inc GST)</span>
+          <span class="drawer-val" id="wk-sq-cash" style="font-weight:600;color:var(--green-600)">$—</span>
         </div>
       </div>
 
-      <!-- Reconciliation -->
+      <!-- Weekly recount -->
+      <div class="section-label">Weekly cash recount</div>
+      <div class="card">
+        <div style="font-size:12px;color:var(--text-3);margin-bottom:10px">
+          Recount the total cash banked this week to confirm against Square.
+        </div>
+        <div class="drawer-row" style="align-items:center">
+          <span class="drawer-label" style="font-weight:600">Recounted total</span>
+          <div style="display:flex;align-items:center;gap:6px">
+            <span style="color:var(--text-3);font-weight:600">$</span>
+            <input id="wk-recount-input" type="number" min="0" step="0.01"
+              inputmode="decimal" placeholder="0.00"
+              style="width:110px;text-align:right;font-size:15px;font-weight:600;padding:6px 8px;border:1.5px solid var(--border);border-radius:8px;background:var(--surface-2);color:var(--text-1)"
+              oninput="CashModule.onRecountInput()">
+          </div>
+        </div>
+      </div>
+
+      <!-- Final weekly check -->
+      <div class="section-label">Final weekly check</div>
       <div class="card">
         <div class="drawer-row">
-          <span class="drawer-label" style="font-weight:600">Total cash banked</span>
-          <span class="drawer-val" id="wk-total-banked" style="font-weight:600">$0.00</span>
+          <span class="drawer-label">Daily totals (sum)</span>
+          <span class="drawer-val" id="wk-total-banked">$0.00</span>
         </div>
         <div class="drawer-row">
-          <span class="drawer-label" style="font-weight:600">Square cash sales</span>
-          <span class="drawer-val" id="wk-sq-cash-mirror" style="font-weight:600">$—</span>
+          <span class="drawer-label">Recounted total</span>
+          <span class="drawer-val" id="wk-recount-display" style="font-weight:600">—</span>
+        </div>
+        <div class="drawer-row">
+          <span class="drawer-label">Square cash report</span>
+          <span class="drawer-val" id="wk-sq-cash-mirror">$—</span>
         </div>
         <div class="cost-divider"></div>
         <div class="drawer-row">
-          <span class="drawer-label" style="font-weight:700;font-size:15px">Difference</span>
+          <span class="drawer-label" style="font-weight:700;font-size:15px">Recount vs Square</span>
           <span class="read-field drawer-val" id="wk-variance" data-state="neutral" style="font-size:15px;font-weight:700">—</span>
         </div>
       </div>
@@ -290,22 +310,40 @@ const CashModule = (() => {
     const weekEnd = Holidays.getWeekEnd(weeklyWeekStart);
     setEl('weekly-week-label', Holidays.formatWeekLabel(weeklyWeekStart));
 
-    // Load saved daily recs for this week
     const allRecs  = Store.getCashRecs().filter(r => r.type === 'daily');
     const weekRecs = allRecs.filter(r => r.date >= weeklyWeekStart && r.date <= weekEnd);
-
     renderWeeklyBreakdown(weekRecs, weeklyWeekStart, weekEnd);
 
-    // Load Square weekly totals
     try {
       const totals = await SquareAPI.getWeeklyTotals(weeklyWeekStart, weekEnd);
-      setEl('wk-sq-cash',  '$' + totals.cashSales.toFixed(2));
-      setEl('wk-sq-card',  '$' + totals.cardSales.toFixed(2));
-      setEl('wk-sq-total', '$' + totals.total.toFixed(2));
-      setEl('wk-sq-cash-mirror', '$' + totals.cashSales.toFixed(2));
-      recalcWeeklyVariance(weekRecs, totals.cashSales);
+      const cash = totals.cashSales;
+      setEl('wk-sq-cash',        '$' + cash.toFixed(2));
+      setEl('wk-sq-cash-mirror', '$' + cash.toFixed(2));
+      recalcWeeklyVariance(weekRecs, cash);
     } catch(e) {
       console.error('Weekly totals error:', e);
+    }
+  }
+
+  function onRecountInput() {
+    const val = parseFloat(document.getElementById('wk-recount-input')?.value) || 0;
+    setEl('wk-recount-display', '$' + val.toFixed(2));
+    const squareCash = parseFloat(document.getElementById('wk-sq-cash')?.textContent?.replace('$', '')) || 0;
+    if (squareCash) recalcWeeklyVarianceFromInputs(val, squareCash);
+  }
+
+  function recalcWeeklyVarianceFromInputs(recount, squareCash) {
+    const variance = recount - squareCash;
+    const abs      = Math.abs(variance);
+    const el       = document.getElementById('wk-variance');
+    if (!el) return;
+    if (recount === 0) { el.textContent = '—'; el.dataset.state = 'neutral'; return; }
+    if (abs < 0.05) {
+      el.textContent = '$0.00 — Balanced ✓'; el.dataset.state = 'ok';
+    } else if (abs <= 20) {
+      el.textContent = (variance > 0 ? '+' : '−') + '$' + abs.toFixed(2) + ' (minor)'; el.dataset.state = 'warn';
+    } else {
+      el.textContent = (variance > 0 ? '+' : '−') + '$' + abs.toFixed(2) + ' — Review needed'; el.dataset.state = 'error';
     }
   }
 
@@ -357,18 +395,11 @@ const CashModule = (() => {
   }
 
   function recalcWeeklyVariance(recs, squareCash) {
+    // Only auto-fill variance if no recount has been entered yet
+    const recountInput = document.getElementById('wk-recount-input');
+    if (recountInput && parseFloat(recountInput.value) > 0) return;
     const totalBanked = recs.reduce((s, r) => s + (r.actualCash ?? r.actual ?? 0), 0);
-    const variance    = totalBanked - squareCash;
-    const abs         = Math.abs(variance);
-    const el          = document.getElementById('wk-variance');
-    if (!el) return;
-    if (abs < 0.05) {
-      el.textContent = '$0.00 — Balanced ✓'; el.dataset.state = 'ok';
-    } else if (abs <= 20) {
-      el.textContent = (variance > 0 ? '+' : '−') + '$' + abs.toFixed(2) + ' (minor)'; el.dataset.state = 'warn';
-    } else {
-      el.textContent = (variance > 0 ? '+' : '−') + '$' + abs.toFixed(2) + ' — Review needed'; el.dataset.state = 'error';
-    }
+    recalcWeeklyVarianceFromInputs(totalBanked, squareCash);
   }
 
   function weeklyNav(dir) {
@@ -381,25 +412,30 @@ const CashModule = (() => {
   }
 
   function saveWeekly() {
-    const totalBanked = parseFloat(document.getElementById('wk-total-banked')?.textContent?.replace('$', '')) || 0;
-    const squareCash  = parseFloat(document.getElementById('wk-sq-cash')?.textContent?.replace('$', ''))      || 0;
+    const dailyTotal  = parseFloat(document.getElementById('wk-total-banked')?.textContent?.replace('$', ''))   || 0;
+    const recount     = parseFloat(document.getElementById('wk-recount-input')?.value)                          || 0;
+    const squareCash  = parseFloat(document.getElementById('wk-sq-cash')?.textContent?.replace('$', ''))        || 0;
+    const finalTotal  = recount || dailyTotal;
+    const variance    = finalTotal - squareCash;
     Store.saveCashRec({
       type:         'weekly',
       weekStart:    weeklyWeekStart,
       weekEnd:      Holidays.getWeekEnd(weeklyWeekStart),
       date:         new Date().toISOString().slice(0, 10),
-      totalBanked,
+      dailyTotal,
+      recount,
       squareCash,
-      variance:     totalBanked - squareCash,
+      variance,
       notes:        document.getElementById('wk-notes')?.value || '',
     });
-    App.toast(`Weekly banking saved — $${totalBanked.toFixed(2)} banked`);
+    const abs = Math.abs(variance);
+    App.toast(abs < 0.05 ? 'Weekly banking saved — balanced ✓' : `Weekly banking saved — difference $${abs.toFixed(2)}`);
   }
 
   // ── Helpers ───────────────────────────────────
 
   function setEl(id, val) { const el = document.getElementById(id); if (el) el.textContent = val; }
 
-  return { init, switchTab, adjustDenom, onDenomInput, weeklyNav };
+  return { init, switchTab, adjustDenom, onDenomInput, weeklyNav, onRecountInput };
 
 })();
