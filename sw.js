@@ -1,9 +1,9 @@
 /**
- * BizOps Service Worker v3
+ * BizOps Service Worker v5
  * Caches ONLY static assets — never API responses or financial data (FIND-004)
  */
 
-const CACHE = 'bizops-v4';
+const CACHE = 'bizops-v5';
 
 // Only static shell files — NO API endpoints
 const STATIC_SHELL = [
@@ -20,6 +20,8 @@ const STATIC_SHELL = [
   '/js/timesheets.js',
   '/js/dashboard.js',
   '/js/app.js',
+  '/js/api-square.js',
+  '/js/api-xero.js',
   '/manifest.json',
 ];
 
