@@ -218,7 +218,8 @@ const SquareAPI = (() => {
     // location_id injected server-side by square-proxy
     const data = await proxyFetch('/cash-drawers/shifts');
     const shifts = data.cash_drawer_shifts || [];
-    const todayShift = shifts.find(s => s.opened_at?.slice(0,10) === dateStr);
+    const todayShift = shifts.find(s => s.opened_at &&
+      new Date(s.opened_at).toLocaleDateString('sv-SE', { timeZone: 'Australia/Brisbane' }) === dateStr);
     if (!todayShift) return { startingCash:0, cashSales:0, cashRefunds:0, paidIn:0, paidOut:0, expected:0, paidInOutItems:[] };
 
     const detailData = await proxyFetch(`/cash-drawers/shifts/${todayShift.id}/events`);
@@ -236,7 +237,7 @@ const SquareAPI = (() => {
     const cashSales    = (todayShift.cash_payment_money?.amount || 0) / 100;
     const cashRefunds  = (todayShift.cash_refunds_money?.amount || 0) / 100;
     const expected     = startingCash + cashSales - cashRefunds + paidIn - paidOut;
-    return { startingCash, cashSales, cashRefunds, paidIn, paidOut, expected, paidInOutItems };
+    return { startingCash, cashSales, cashRefunds, paidIn, paidOut, expected, expectedInDrawer: expected, paidInOutItems };
   }
 
   function delay(ms) { return new Promise(r => setTimeout(r, ms)); }

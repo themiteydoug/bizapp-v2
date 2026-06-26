@@ -68,14 +68,17 @@ const CashModule = (() => {
   // ── Square drawer data ────────────────────────
 
   async function loadSquareDrawer() {
+    const syncEl = document.getElementById('sq-sync-status');
+    if (syncEl) syncEl.textContent = 'Syncing…';
     try {
-      const today = new Date().toISOString().slice(0, 10);
-      const drawer = await SquareAPI.getDrawerReport(today);
+      const drawer = await SquareAPI.getDrawerReport();
       squareDrawer = drawer;
       renderSquarePanel();
       updateExpected();
+      if (syncEl) syncEl.textContent = '';
     } catch (e) {
       console.error('Drawer load error:', e);
+      if (syncEl) syncEl.textContent = 'Sync failed: ' + e.message;
     }
   }
 
