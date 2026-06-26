@@ -230,22 +230,13 @@ const XeroAPI = (() => {
   }
 
   function demoOverhead() {
-    // Simulated 12-week average overhead breakdown (ex wages, ex super)
+    // Simulated financial-year-to-date weekly average overhead (ex wages, ex super)
     return {
       weeklyAverage: 1842.50,
-      total12Weeks:  22110.00,
-      breakdown: [
-        { name: 'Rent',               weekly: 750.00  },
-        { name: 'Utilities',          weekly: 312.50  },
-        { name: 'Packaging',          weekly: 285.00  },
-        { name: 'Cleaning Supplies',  weekly: 145.00  },
-        { name: 'Licences & Permits', weekly: 95.00   },
-        { name: 'Insurance',          weekly: 115.00  },
-        { name: 'Repairs & Maint.',   weekly: 80.00   },
-        { name: 'Other',              weekly: 60.00   },
-      ],
-      fromDate: '2025-03-03',
-      toDate:   '2025-05-25',
+      total:         93967.50,
+      weeks:         51.0,
+      fromDate: '2025-07-01',
+      toDate:   '2026-06-21',
       note:     'Demo data — connect Xero to see real figures',
     };
   }
@@ -414,7 +405,7 @@ const XeroAPI = (() => {
     return results;
   }
 
-  // ── 12-week overhead average ──────────────────
+  // ── Overhead weekly average (financial-year-to-date) ──
 
   // Account name fragments to exclude (wages + super)
   const WAGE_SUPER_KEYWORDS = [
@@ -429,23 +420,36 @@ const XeroAPI = (() => {
   }
 
   /**
-   * Fetches the Xero P&L for the 12 weeks prior to the current week
-   * and returns a summary excluding wages and superannuation accounts.
+   * Fetches the Xero P&L from the start of the current financial year (1 July)
+   * up to the end of the previous week, and returns the weekly average of
+   * operating expenses excluding wages and superannuation.
    *
-   * @param {string} currentWeekStart  ISO date of Monday this week
-   * @returns {{ weeklyAverage, total12Weeks, breakdown, fromDate, toDate }}
+   * Example: for the week of Mon 22 Jun 2026, the range is 1 Jul 2025 → 21 Jun
+   * 2026, and the total is divided by the number of weeks in that range.
+   *
+   * @param {string} currentWeekStart  ISO date (YYYY-MM-DD) of Monday this week
+   * @returns {{ weeklyAverage, total, weeks, fromDate, toDate }}
    */
   async function getOverheadAverage(currentWeekStart) {
     if (CONFIG.FEATURES.DEMO_MODE) { await delay(900); return demoOverhead(); }
 
-    // Date range: 12 weeks ending the day before current week
-    const toDate = new Date(currentWeekStart + 'T12:00:00');
-    toDate.setDate(toDate.getDate() - 1);
-    const fromDate = new Date(toDate);
-    fromDate.setDate(fromDate.getDate() - 83); // 84 days = 12 weeks
+    // End date = the day before the current week starts (end of previous week).
+    // UTC-anchored arithmetic (Brisbane = UTC+10, no DST) so dates never slip.
+    const toD = new Date(currentWeekStart + 'T12:00:00Z');
+    toD.setUTCDate(toD.getUTCDate() - 1);
 
-    const from = fromDate.toISOString().slice(0, 10);
-    const to   = toDate.toISOString().slice(0, 10);
+    // Start date = 1 July of the financial year containing the end date.
+    // Australian FY runs 1 Jul – 30 Jun, so months Jan–Jun belong to the FY
+    // that started 1 July of the previous calendar year.
+    const fyStartYear = toD.getUTCMonth() >= 6 ? toD.getUTCFullYear() : toD.getUTCFullYear() - 1;
+    const fromD = new Date(Date.UTC(fyStartYear, 6, 1)); // month 6 = July
+
+    const from = fromD.toISOString().slice(0, 10);
+    const to   = toD.toISOString().slice(0, 10);
+
+    // Number of weeks across the (inclusive) range
+    const days  = Math.round((toD - fromD) / 86400000) + 1;
+    const weeks = days / 7;
 
     const data = await proxyFetch('/Reports/ProfitAndLoss', {}, false, {
       fromDate: from,
@@ -455,31 +459,28 @@ const XeroAPI = (() => {
     const report = data?.Reports?.[0];
     if (!report) throw new Error('No P&L data returned from Xero');
 
-    // Extract expense rows
+    // Sum the operating-expense section, excluding wages/super.
+    // "Cost of Sales" is a separate section (title doesn't match /expense/i),
+    // so COGS is not included here — it's tracked separately from invoices.
     const expenseSection = report.Rows?.find(
       r => r.RowType === 'Section' && /expense/i.test(r.Title || '')
     );
-    if (!expenseSection) return { weeklyAverage: 0, total12Weeks: 0, breakdown: [], from, to };
-
-    const breakdown = [];
-    let total12Weeks = 0;
-
-    for (const row of expenseSection.Rows || []) {
-      if (row.RowType !== 'Row') continue;
-      const name   = row.Cells?.[0]?.Value || '';
-      const amount = parseFloat(row.Cells?.[1]?.Value || '0');
-      if (isWageOrSuper(name)) continue;
-      if (!amount) continue;
-      breakdown.push({ name, total: amount, weekly: parseFloat((amount / 12).toFixed(2)) });
-      total12Weeks += amount;
+    let total = 0;
+    if (expenseSection) {
+      for (const row of expenseSection.Rows || []) {
+        if (row.RowType !== 'Row') continue;
+        const name   = row.Cells?.[0]?.Value || '';
+        const amount = parseFloat(row.Cells?.[1]?.Value || '0');
+        if (isWageOrSuper(name)) continue;
+        if (!amount) continue;
+        total += amount;
+      }
     }
 
-    breakdown.sort((a, b) => b.total - a.total);
-
     return {
-      weeklyAverage: parseFloat((total12Weeks / 12).toFixed(2)),
-      total12Weeks:  parseFloat(total12Weeks.toFixed(2)),
-      breakdown,
+      weeklyAverage: parseFloat((total / weeks).toFixed(2)),
+      total:         parseFloat(total.toFixed(2)),
+      weeks:         parseFloat(weeks.toFixed(1)),
       fromDate: from,
       toDate:   to,
     };

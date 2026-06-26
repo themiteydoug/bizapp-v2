@@ -1,7 +1,7 @@
 /**
  * BizOps · Dashboard Module
  * Staff view: takings + hours only.
- * Manager view: full cost breakdown + 12-week overhead average from Xero.
+ * Manager view: full cost breakdown + weekly overhead average from Xero.
  */
 
 const Dashboard = (() => {
@@ -69,14 +69,6 @@ const Dashboard = (() => {
         renderCosts(weekTotals, timesheets, currentWeekStart, weekEnd);
 
         if (XeroAPI.isConnected()) {
-          XeroAPI.getDraftBills()
-            .then(bills => { if (bills) renderInvoicesDue(bills); })
-            .catch(e => {
-              console.warn('Xero bills error:', e.message);
-              if (!e.message.includes('session expired') && !e.message.includes('Not connected')) {
-                App.toast('Xero: ' + e.message, 'error');
-              }
-            });
           loadOverhead();
         }
       }
@@ -119,7 +111,7 @@ const Dashboard = (() => {
    * renderCosts — real data only, no hardcoded percentages.
    *  Labour: Square timesheet hours × $28/hr blended estimate (Fast Food Award L1 casual weekday)
    *  COGS:   sum of today's scanned invoices from local store
-   *  Overhead row removed from daily view — see 12-week Xero section below
+   *  Overhead row removed from daily view — see weekly avg Xero section below
    */
   function renderCosts(weekTotals, timesheets, weekStart, weekEnd) {
     const revenue = weekTotals.total || 0;
@@ -166,47 +158,7 @@ const Dashboard = (() => {
     }, 80);
   }
 
-  function renderInvoicesDue(bills) {
-    const list  = document.getElementById('invoices-due-list');
-    if (!list) return;
-
-    const today = new Date();
-    const inWeek = bills.filter(b => {
-      if (!b.dueDate) return false;
-      const diff = (new Date(b.dueDate) - today) / 86400000;
-      return diff >= -1 && diff <= 7;
-    });
-
-    if (!inWeek.length) {
-      list.innerHTML = '<div class="empty-state">No invoices due this week</div>';
-      return;
-    }
-
-    list.innerHTML = inWeek.map(b => {
-      const due      = b.dueDate ? new Date(b.dueDate + 'T12:00:00') : null;
-      const dueLabel = due ? due.toLocaleDateString('en-AU', { day: 'numeric', month: 'short' }) : '—';
-      const isOverdue = due && due < today;
-      const statusClass = isOverdue ? 'status-overdue' : b.status === 'DRAFT' ? 'status-draft' : 'status-synced';
-      const statusLabel = isOverdue ? 'Overdue' : b.status === 'DRAFT' ? 'Draft' : 'Approved';
-      return `
-        <div class="invoice-item">
-          <div class="invoice-icon">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline></svg>
-          </div>
-          <div class="invoice-info">
-            <div class="invoice-supplier">${b.supplier || 'Unknown supplier'}</div>
-            <div class="invoice-meta">Due ${dueLabel} · ${b.invoiceNo || '—'}</div>
-          </div>
-          <div class="invoice-right">
-            <div class="invoice-amount">$${(b.amount || 0).toFixed(2)}</div>
-            <span class="invoice-status ${statusClass}">${statusLabel}</span>
-          </div>
-        </div>
-      `;
-    }).join('');
-  }
-
-  // ── 12-week overhead average (manager only) ───
+  // ── Overhead weekly average (manager only) ───
 
   async function loadOverhead() {
     const card = document.getElementById('overhead-card');
@@ -227,42 +179,16 @@ const Dashboard = (() => {
     const card = document.getElementById('overhead-card');
     if (!card) return;
 
-    const fmt = n => '$' + n.toLocaleString('en-AU', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-    const fmtDate = d => d ? new Date(d + 'T12:00:00').toLocaleDateString('en-AU', { day: 'numeric', month: 'short', year: 'numeric' }) : '—';
-
-    const rows = (data.breakdown || []).map(item => `
-      <div class="cost-row" style="padding:8px 0">
-        <div class="cost-info">
-          <div class="cost-name" style="font-size:13px">${item.name}</div>
-        </div>
-        <div class="cost-right">
-          <div class="cost-amount" style="font-size:13px">${fmt(item.weekly)}<span style="color:var(--text-3);font-size:11px">/wk</span></div>
-        </div>
-      </div>
-    `).join('<div style="height:1px;background:var(--border);margin:0 -16px"></div>');
+    const fmt = n => '$' + (n || 0).toLocaleString('en-AU', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    const fmtDate = d => d ? new Date(d + 'T12:00:00Z').toLocaleDateString('en-AU', { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'UTC' }) : '—';
 
     card.innerHTML = `
-      <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:12px">
-        <div>
-          <div style="font-size:24px;font-weight:700;color:var(--text-1)">${fmt(data.weeklyAverage)}</div>
-          <div style="font-size:12px;color:var(--text-3);margin-top:2px">avg per week (ex wages &amp; super)</div>
-        </div>
-        <div style="text-align:right">
-          <div style="font-size:13px;font-weight:500;color:var(--text-2)">${fmt(data.total12Weeks)}</div>
-          <div style="font-size:11px;color:var(--text-3)">12-week total</div>
-        </div>
-      </div>
-
-      <div style="font-size:11px;color:var(--text-3);margin-bottom:10px">
-        ${fmtDate(data.fromDate)} – ${fmtDate(data.toDate)}
+      <div style="font-size:28px;font-weight:700;color:var(--text-1)">${fmt(data.weeklyAverage)}</div>
+      <div style="font-size:12px;color:var(--text-3);margin-top:2px">avg per week (ex wages &amp; super)</div>
+      <div style="font-size:11px;color:var(--text-3);margin-top:10px">
+        ${fmtDate(data.fromDate)} – ${fmtDate(data.toDate)}${data.weeks ? ` · ${data.weeks} weeks` : ''}
         ${data.note ? `· <em>${data.note}</em>` : ''}
       </div>
-
-      ${rows ? `
-        <div style="border-top:1px solid var(--border);padding-top:4px">
-          ${rows}
-        </div>
-      ` : '<div class="empty-state">No overhead data found</div>'}
     `;
   }
 
