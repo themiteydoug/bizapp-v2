@@ -135,6 +135,13 @@ const SquareAPI = (() => {
     });
 
     const staff = Store.getStaff().filter(s => s.active);
+    // If no staff in local store, return all employees found in shifts
+    if (!staff.length) {
+      return Object.entries(byEmployee).map(([eid, empShifts]) => ({
+        staffId: eid, squareId: eid, name: eid, shifts: empShifts,
+        totalHours: empShifts.reduce((a, sh) => a + sh.hours, 0),
+      }));
+    }
     return staff.map(s => {
       const empShifts = byEmployee[s.squareId] || [];
       const totalHours = empShifts.reduce((a, sh) => a + sh.hours, 0);
@@ -181,8 +188,9 @@ const SquareAPI = (() => {
 
   async function getStaffList() {
     if (CONFIG.FEATURES.DEMO_MODE) { await delay(400); return Store.getStaff(); }
-    const data = await proxyFetch('/team-members');
-    return data.team_members || [];
+    // Square Team Plus (Legacy) uses /employees; newer plans use /team-members
+    const data = await proxyFetch('/employees');
+    return data.employees || [];
   }
 
   // ── Drawer report ─────────────────────────────

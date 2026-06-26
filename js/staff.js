@@ -36,7 +36,7 @@ const StaffModule = (() => {
 
     try {
       const members = await SquareAPI.getStaffList();
-      const active = members.filter(m => m.status === 'ACTIVE');
+      const active = members.filter(m => m.status === 'ACTIVE' && !m.is_owner);
 
       if (!active.length) {
         App.toast('No active team members found in Square', 'warning');
@@ -49,7 +49,8 @@ const StaffModule = (() => {
 
       const imported = active.map(m => {
         const prev = existingById[m.id] || {};
-        const name = [m.given_name, m.family_name].filter(Boolean).join(' ') || m.display_name || m.id;
+        // Support both new API (given_name/family_name) and legacy /employees (first_name/last_name)
+        const name = [m.given_name || m.first_name, m.family_name || m.last_name].filter(Boolean).join(' ') || m.display_name || m.id;
         const initials = name.split(' ').map(w => w[0]).join('').toUpperCase().slice(0, 2);
         return {
           id:             prev.id        || 'staff_' + m.id,
