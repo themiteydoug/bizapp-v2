@@ -8,6 +8,7 @@ const StaffModule = (() => {
 
   async function init() {
     renderList();
+    renderImportButton();
     // Pre-load Xero pay rates for dropdowns
     try {
       xeroRates = await XeroAPI.getPayRates();
@@ -15,6 +16,64 @@ const StaffModule = (() => {
       console.warn('Could not load Xero rates:', e);
     }
     bindCloseModal();
+  }
+
+  function renderImportButton() {
+    const container = document.getElementById('staff-import-container');
+    if (!container) return;
+    container.innerHTML = `
+      <button class="secondary-btn" id="btn-import-square" style="width:100%;margin-bottom:16px">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="margin-right:6px"><polyline points="8 17 12 21 16 17"></polyline><line x1="12" y1="3" x2="12" y2="21"></line></svg>
+        Import staff from Square
+      </button>
+    `;
+    document.getElementById('btn-import-square').addEventListener('click', importFromSquare);
+  }
+
+  async function importFromSquare() {
+    const btn = document.getElementById('btn-import-square');
+    if (btn) { btn.disabled = true; btn.textContent = 'Importing…'; }
+
+    try {
+      const members = await SquareAPI.getStaffList();
+      const active = members.filter(m => m.status === 'ACTIVE');
+
+      if (!active.length) {
+        App.toast('No active team members found in Square', 'warning');
+        return;
+      }
+
+      // Preserve any existing pay rate mappings by squareId
+      const existing = Store.getStaff();
+      const existingById = Object.fromEntries(existing.map(s => [s.squareId, s]));
+
+      const imported = active.map(m => {
+        const prev = existingById[m.id] || {};
+        const name = [m.given_name, m.family_name].filter(Boolean).join(' ') || m.display_name || m.id;
+        const initials = name.split(' ').map(w => w[0]).join('').toUpperCase().slice(0, 2);
+        return {
+          id:             prev.id        || 'staff_' + m.id,
+          squareId:       m.id,
+          name,
+          initials,
+          employmentType: prev.employmentType || 'casual',
+          awardLevel:     prev.awardLevel     || 1,
+          xeroEmployeeId: prev.xeroEmployeeId || '',
+          payRates:       prev.payRates       || { weekday: '', weekend: '', saturday: null, sunday: null, publicHol: '' },
+          notes:          prev.notes          || '',
+          startDate:      m.created_at?.slice(0, 10) || new Date().toISOString().slice(0, 10),
+          active:         true,
+        };
+      });
+
+      Store.saveStaff(imported);
+      App.toast(`Imported ${imported.length} staff from Square`, 'success');
+      renderList();
+    } catch (e) {
+      App.toast('Import failed: ' + e.message, 'error');
+    } finally {
+      if (btn) { btn.disabled = false; btn.innerHTML = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="margin-right:6px"><polyline points="8 17 12 21 16 17"></polyline><line x1="12" y1="3" x2="12" y2="21"></line></svg> Import staff from Square'; }
+    }
   }
 
   function renderList() {

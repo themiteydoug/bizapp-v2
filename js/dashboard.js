@@ -31,18 +31,27 @@ const Dashboard = (() => {
 
     try {
       const takings = await SquareAPI.getTakings(today);
-      renderTakings(takings);
+      renderTakings(takings, today);
 
       if (Auth.isManager()) {
-        renderCosts(takings);
+        // Fetch timesheets for real labour hours — errors fall back to 0h
+        SquareAPI.getWeekTimesheets(Holidays.getWeekStart())
+          .then(timesheets => {
+            let todayHours = 0;
+            timesheets.forEach(emp => {
+              const s = emp.shifts.find(sh => sh.date === today);
+              if (s) todayHours += s.hours;
+            });
+            renderCosts(takings, todayHours, today);
+          })
+          .catch(() => renderCosts(takings, 0, today));
 
-        // Xero data loaded independently — Xero errors don't block Square data
+        // Xero data — independent, errors don't block Square
         if (XeroAPI.isConnected()) {
           XeroAPI.getDraftBills()
             .then(bills => { if (bills) renderInvoicesDue(bills); })
             .catch(e => {
               console.warn('Xero bills error:', e.message);
-              // Only show toast if it's not a "not connected" message
               if (!e.message.includes('session expired') && !e.message.includes('Not connected')) {
                 App.toast('Xero: ' + e.message, 'error');
               }
@@ -58,67 +67,88 @@ const Dashboard = (() => {
     }
   }
 
-  function renderTakings(takings) {
+  function renderTakings(takings, today) {
     const fmt = n => '$' + Math.round(n).toLocaleString();
 
     const takingsEl = document.getElementById('dash-takings');
     if (takingsEl) takingsEl.textContent = fmt(takings.total);
 
-    const seed  = parseInt(new Date().toISOString().slice(8, 10));
-    const delta = ((seed % 30) - 15);
+    // Hide fake delta — remove or replace with real yesterday comparison later
     const deltaEl = document.getElementById('dash-takings-delta');
-    if (deltaEl) {
-      deltaEl.textContent = (delta >= 0 ? '↑' : '↓') + Math.abs(delta) + '% vs yesterday';
-      deltaEl.style.color = delta >= 0 ? 'var(--green-300)' : 'rgba(255,120,100,0.9)';
-    }
+    if (deltaEl) deltaEl.textContent = '';
 
-    // Hours (available to all roles)
-    const weekStart = Holidays.getWeekStart();
-    SquareAPI.getWeekTimesheets(weekStart).then(ts => {
-      const todayStr = new Date().toLocaleDateString('sv-SE', { timeZone: 'Australia/Brisbane' });
+    // Hours shown for all roles — pulled via shared timesheet fetch in refresh()
+    // rendered here with placeholder, updated once timesheets arrive
+    const hoursEl = document.getElementById('dash-hours');
+    const subEl   = document.getElementById('dash-hours-sub');
+    if (hoursEl && hoursEl.textContent === '0h') hoursEl.textContent = '—';
+    if (subEl   && subEl.textContent   === '— staff today') subEl.textContent = 'loading…';
+
+    SquareAPI.getWeekTimesheets(Holidays.getWeekStart()).then(ts => {
       let todayHours = 0, staffCount = 0;
       ts.forEach(emp => {
-        const todayShift = emp.shifts.find(s => s.date === todayStr);
+        const todayShift = emp.shifts.find(s => s.date === today);
         if (todayShift) { todayHours += todayShift.hours; staffCount++; }
       });
-      const hoursEl = document.getElementById('dash-hours');
-      const subEl   = document.getElementById('dash-hours-sub');
-      if (hoursEl) hoursEl.textContent = todayHours.toFixed(1) + 'h';
+      if (hoursEl) hoursEl.textContent = todayHours > 0 ? todayHours.toFixed(1) + 'h' : '0h';
       if (subEl)   subEl.textContent   = staffCount + ' staff today';
-    }).catch(() => {});
+    }).catch(() => {
+      if (hoursEl) hoursEl.textContent = '—';
+      if (subEl)   subEl.textContent   = 'Square error';
+    });
   }
 
-  function renderCosts(takings) {
-    const revenue = takings.total || 1;
+  /**
+   * renderCosts — real data only, no hardcoded percentages.
+   *  Labour: Square timesheet hours × $28/hr blended estimate (Fast Food Award L1 casual weekday)
+   *  COGS:   sum of today's scanned invoices from local store
+   *  Overhead row removed from daily view — see 12-week Xero section below
+   */
+  function renderCosts(takings, todayHours, today) {
+    const revenue = takings.total || 0;
 
-    // Demo cost figures — in production pull from Xero bills for period
-    const labour = Math.round(revenue * 0.215);
-    const cogs   = Math.round(revenue * 0.298);
-    const oh     = Math.round(revenue * 0.127);
-    const net    = revenue - labour - cogs - oh;
+    // Labour from Square hours
+    const BLENDED_RATE = 28; // $/hr estimate — actual cost via Xero payroll
+    const labour = Math.round(todayHours * BLENDED_RATE);
 
-    const fmt = n => '$' + Math.round(n).toLocaleString();
-    const pct = n => (n / revenue * 100).toFixed(1) + '%';
+    // COGS from today's scanned invoices
+    const todayInvoices = Store.getInvoices(today);
+    const cogs = Math.round(todayInvoices.reduce((sum, inv) => sum + (inv.subtotal || 0), 0));
+
+    const net = revenue - labour - cogs;
+
+    const fmt = n => (n < 0 ? '-$' : '$') + Math.abs(Math.round(n)).toLocaleString();
+    const pct = n => revenue > 0 ? (n / revenue * 100).toFixed(1) + '%' : '—';
     const set = (id, val) => { const el = document.getElementById(id); if (el) el.textContent = val; };
 
-    set('cost-labour',      fmt(labour));
-    set('cost-labour-pct',  pct(labour));
-    set('cost-labour-sub',  `${Store.getStaff().filter(s=>s.active).length} staff · from Square`);
-    set('cost-cogs',        fmt(cogs));
-    set('cost-cogs-pct',    pct(cogs));
-    set('cost-oh',          fmt(oh));
-    set('cost-oh-pct',      pct(oh));
-    set('cost-net',         fmt(net));
-    set('cost-net-pct',     pct(net));
+    const labourSub = todayHours > 0
+      ? `${todayHours.toFixed(1)}h · est. $${BLENDED_RATE}/hr`
+      : 'No Square shifts today';
+    const cogsSub = todayInvoices.length > 0
+      ? `${todayInvoices.length} invoice${todayInvoices.length > 1 ? 's' : ''} today`
+      : 'Scan invoices to track COGS';
+
+    set('cost-labour',     fmt(labour));
+    set('cost-labour-pct', pct(labour));
+    set('cost-labour-sub', labourSub);
+    set('cost-cogs',       fmt(cogs));
+    set('cost-cogs-pct',   pct(cogs));
+    set('cost-cogs-sub',   cogsSub);
+    // Hide overhead row in daily view (shown in 12-week Xero section below)
+    const ohRow  = document.getElementById('cost-oh-row');
+    const ohBar  = document.getElementById('bar-oh-wrap');
+    if (ohRow) ohRow.style.display = 'none';
+    if (ohBar) ohBar.style.display = 'none';
+    set('cost-net',        fmt(net));
+    set('cost-net-pct',    pct(net));
 
     setTimeout(() => {
-      const setBar = (id, val) => {
+      const setBar = (id, pxVal) => {
         const el = document.getElementById(id);
-        if (el) el.style.width = Math.min(val / revenue * 100, 100) + '%';
+        if (el) el.style.width = revenue > 0 ? Math.min(Math.max(pxVal, 0) / revenue * 100, 100) + '%' : '0%';
       };
       setBar('bar-labour', labour);
       setBar('bar-cogs',   cogs);
-      setBar('bar-oh',     oh);
     }, 80);
   }
 

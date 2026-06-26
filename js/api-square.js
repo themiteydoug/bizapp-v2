@@ -103,28 +103,37 @@ const SquareAPI = (() => {
   }
 
   async function fetchTimesheetsReal(weekStart, weekEnd) {
-    // location_id injected server-side by square-proxy
+    // Square API uses start_at_min / start_at_max for date range filtering on GET /labor/shifts
+    // location_id is injected server-side by square-proxy
     const data = await proxyFetch('/labor/shifts', 'GET', null, {
-      start_at_start: weekStart + 'T00:00:00+10:00',
-      start_at_end:   weekEnd   + 'T23:59:59+10:00',
+      start_at_min: weekStart + 'T00:00:00+10:00',
+      start_at_max: weekEnd   + 'T23:59:59+10:00',
       limit: 200,
     });
     const shifts = data.shifts || [];
     const byEmployee = {};
     shifts.forEach(shift => {
-      const eid = shift.employee_id;
+      // Square API v2: team_member_id is current; employee_id is deprecated but may still appear
+      const eid = shift.team_member_id || shift.employee_id;
+      if (!eid) return;
       if (!byEmployee[eid]) byEmployee[eid] = [];
       const startMs = new Date(shift.start_at).getTime();
-      const endMs = shift.end_at ? new Date(shift.end_at).getTime() : startMs;
-      const hours = Math.round((endMs - startMs) / 36000) / 100;
-      byEmployee[eid].push({
-        date: shift.start_at.slice(0, 10),
-        hours,
-        startTime: shift.start_at,
-        endTime: shift.end_at,
-        breakMins: shift.breaks?.reduce((a, b) => a + (b.expected_duration?.minutes || 0), 0) || 0,
-      });
+      const endMs   = shift.end_at ? new Date(shift.end_at).getTime() : startMs;
+      const rawHours = (endMs - startMs) / 3600000;
+      // Subtract unpaid breaks
+      const breakMins = (shift.breaks || []).reduce((a, b) => {
+        // breaks have start_at/end_at when clocked, otherwise expected_duration
+        if (b.start_at && b.end_at) {
+          return a + (new Date(b.end_at) - new Date(b.start_at)) / 60000;
+        }
+        return a + (b.expected_duration?.minutes || 0);
+      }, 0);
+      const hours = Math.round((rawHours - breakMins / 60) * 100) / 100;
+      // Shift date in Brisbane time
+      const date = new Date(shift.start_at).toLocaleDateString('sv-SE', { timeZone: 'Australia/Brisbane' });
+      byEmployee[eid].push({ date, hours, startTime: shift.start_at, endTime: shift.end_at, breakMins });
     });
+
     const staff = Store.getStaff().filter(s => s.active);
     return staff.map(s => {
       const empShifts = byEmployee[s.squareId] || [];

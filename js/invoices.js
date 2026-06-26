@@ -1,22 +1,20 @@
 /**
- * BizOps · Invoice Module v2
- * Manual entry with required photo, supplier dropdown, GST field
- * Photo pushed to Xero as attachment on draft bill
+ * BizOps · Invoice Module v3
+ * Camera uses <label for="input"> instead of JS .click() — works reliably on iOS Safari PWA.
+ * COGS on dashboard comes from today's scanned invoices (Store.getInvoices).
  */
 
 const InvoiceModule = (() => {
 
   let photoDataUrl = null;
-  let photoBlob = null;
 
   function init() {
     renderForm();
     loadTodayInvoices();
     loadPendingXero();
-    document.getElementById('invoice-file-input')?.addEventListener('change', handlePhoto);
   }
 
-  // ── Supplier history dropdown ─────────────────
+  // ── Supplier history ──────────────────────────
 
   function getPastSuppliers() {
     const all = Store.getInvoices();
@@ -30,30 +28,38 @@ const InvoiceModule = (() => {
     const container = document.getElementById('invoice-form-container');
     if (!container) return;
     const suppliers = getPastSuppliers();
+    const todayBrisbane = new Date().toLocaleDateString('sv-SE', { timeZone: 'Australia/Brisbane' });
 
     container.innerHTML = `
       <!-- Photo capture — required -->
       <div class="section-label">Invoice photo <span style="color:var(--red-500)">*</span></div>
-      <div class="photo-zone" id="photo-zone" onclick="InvoiceModule.triggerPhoto()">
-        <div id="photo-placeholder">
+
+      <!-- File inputs — activated via <label for=""> so iOS camera opens reliably -->
+      <input type="file" id="inv-photo-camera"  accept="image/*" capture="environment" style="display:none">
+      <input type="file" id="inv-photo-library" accept="image/*" style="display:none">
+
+      <!-- Photo zone — tap to open camera -->
+      <label class="photo-zone" id="photo-zone" for="inv-photo-camera" style="display:block;cursor:pointer">
+        <div id="photo-placeholder" style="display:flex;flex-direction:column;align-items:center;padding:24px 0">
           <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" style="color:var(--green-400)"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"></path><circle cx="12" cy="13" r="4"></circle></svg>
           <div style="font-size:13px;font-weight:500;color:var(--text-2);margin-top:8px">Tap to photograph invoice</div>
           <div style="font-size:11px;color:var(--text-3);margin-top:3px">Required before saving</div>
         </div>
         <img id="photo-preview" style="display:none;width:100%;border-radius:var(--r-md);max-height:220px;object-fit:cover">
-      </div>
+      </label>
+
       <div style="display:flex;gap:8px;margin-bottom:4px">
-        <button class="secondary-btn" style="flex:1;height:38px;font-size:13px" onclick="InvoiceModule.triggerPhoto()">
+        <label class="secondary-btn" style="flex:1;height:38px;font-size:13px;display:flex;align-items:center;justify-content:center;gap:6px;cursor:pointer" for="inv-photo-camera">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"></path><circle cx="12" cy="13" r="4"></circle></svg>
           Camera
-        </button>
-        <button class="secondary-btn" style="flex:1;height:38px;font-size:13px" onclick="InvoiceModule.triggerLibrary()">
+        </label>
+        <label class="secondary-btn" style="flex:1;height:38px;font-size:13px;display:flex;align-items:center;justify-content:center;gap:6px;cursor:pointer" for="inv-photo-library">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>
           Library
-        </button>
+        </label>
       </div>
 
-      <!-- Supplier -->
+      <!-- Invoice details -->
       <div class="section-label" style="margin-top:14px">Invoice details</div>
       <div class="card">
         <div class="field-group">
@@ -72,8 +78,7 @@ const InvoiceModule = (() => {
           </div>
           <div class="field-group">
             <label class="field-label">Invoice date</label>
-            <input class="field-input" type="date" id="inv-date"
-              value="${new Date().toISOString().slice(0,10)}">
+            <input class="field-input" type="date" id="inv-date" value="${todayBrisbane}">
           </div>
         </div>
 
@@ -82,14 +87,12 @@ const InvoiceModule = (() => {
           <input class="field-input" type="date" id="inv-due">
         </div>
 
-        <!-- Amounts -->
         <div class="cost-divider"></div>
         <div class="field-row-2">
           <div class="field-group">
             <label class="field-label">Total inc GST ($)</label>
             <input class="field-input" type="number" id="inv-total-gst"
-              placeholder="0.00" step="0.01" inputmode="decimal"
-              oninput="InvoiceModule.calcFromTotal()">
+              placeholder="0.00" step="0.01" inputmode="decimal">
           </div>
           <div class="field-group">
             <label class="field-label">GST amount ($)</label>
@@ -99,7 +102,7 @@ const InvoiceModule = (() => {
         <div class="field-group">
           <label class="field-label">Amount ex GST ($)</label>
           <div class="read-field highlight" id="inv-ex-gst">$—</div>
-          <div style="font-size:11px;color:var(--text-3);margin-top:4px">This is the amount posted to Xero and used in cost calculations</div>
+          <div style="font-size:11px;color:var(--text-3);margin-top:4px">Posted to Xero and used in daily COGS</div>
         </div>
 
         <div class="field-group">
@@ -108,11 +111,17 @@ const InvoiceModule = (() => {
         </div>
       </div>
 
-      <button class="primary-btn full-btn" id="save-invoice-btn" onclick="InvoiceModule.save()">
+      <button class="primary-btn full-btn" id="save-invoice-btn">
         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="22" y1="2" x2="11" y2="13"></line><polygon points="22 2 15 22 11 13 2 9 22 2"></polygon></svg>
         Save &amp; send to Xero
       </button>
     `;
+
+    // Bind events programmatically — no inline onclick
+    document.getElementById('inv-photo-camera').addEventListener('change', handlePhoto);
+    document.getElementById('inv-photo-library').addEventListener('change', handlePhoto);
+    document.getElementById('inv-total-gst').addEventListener('input', calcFromTotal);
+    document.getElementById('save-invoice-btn').addEventListener('click', save);
   }
 
   function calcFromTotal() {
@@ -125,29 +134,16 @@ const InvoiceModule = (() => {
 
   // ── Photo handling ────────────────────────────
 
-  function triggerPhoto() {
-    const input = document.getElementById('invoice-file-input');
-    input.setAttribute('capture', 'environment');
-    input.click();
-  }
-
-  function triggerLibrary() {
-    const input = document.getElementById('invoice-file-input');
-    input.removeAttribute('capture');
-    input.click();
-  }
-
   function handlePhoto(e) {
     const file = e.target.files?.[0];
     if (!file) return;
-    e.target.value = '';
+    e.target.value = ''; // reset so same file can be re-selected
     const reader = new FileReader();
     reader.onload = ev => {
       photoDataUrl = ev.target.result;
-      photoBlob = file;
       const preview = document.getElementById('photo-preview');
       const placeholder = document.getElementById('photo-placeholder');
-      if (preview) { preview.src = photoDataUrl; preview.style.display = 'block'; }
+      if (preview)     { preview.src = photoDataUrl; preview.style.display = 'block'; }
       if (placeholder) placeholder.style.display = 'none';
       const zone = document.getElementById('photo-zone');
       if (zone) zone.style.border = '2px solid var(--green-400)';
@@ -158,18 +154,17 @@ const InvoiceModule = (() => {
   // ── Save ──────────────────────────────────────
 
   async function save() {
-    const supplier = document.getElementById('inv-supplier')?.value?.trim();
+    const supplier  = document.getElementById('inv-supplier')?.value?.trim();
     const invoiceNo = document.getElementById('inv-no')?.value?.trim();
-    const totalGst = parseFloat(document.getElementById('inv-total-gst')?.value) || 0;
+    const totalGst  = parseFloat(document.getElementById('inv-total-gst')?.value) || 0;
 
-    // Validation
     if (!photoDataUrl) { App.toast('Please photograph the invoice first', 'warning'); return; }
-    if (!supplier)  { App.toast('Supplier name is required', 'warning'); return; }
-    if (!invoiceNo) { App.toast('Invoice number is required', 'warning'); return; }
-    if (!totalGst)  { App.toast('Enter the invoice total', 'warning'); return; }
+    if (!supplier)     { App.toast('Supplier name is required', 'warning'); return; }
+    if (!invoiceNo)    { App.toast('Invoice number is required', 'warning'); return; }
+    if (!totalGst)     { App.toast('Enter the invoice total', 'warning'); return; }
 
-    const gst    = Math.round((totalGst / 11) * 100) / 100;
-    const exGst  = Math.round((totalGst - gst) * 100) / 100;
+    const gst   = Math.round((totalGst / 11) * 100) / 100;
+    const exGst = Math.round((totalGst - gst) * 100) / 100;
 
     const btn = document.getElementById('save-invoice-btn');
     if (btn) { btn.disabled = true; btn.textContent = 'Saving…'; }
@@ -183,13 +178,13 @@ const InvoiceModule = (() => {
       gst,
       subtotal:    exGst,
       notes:       document.getElementById('inv-notes')?.value || '',
-      date:        new Date().toISOString().slice(0, 10),
+      date:        new Date().toLocaleDateString('sv-SE', { timeZone: 'Australia/Brisbane' }),
       photoDataUrl,
     };
 
     try {
       const xeroBill = await XeroAPI.createDraftBill(invoiceData);
-      Store.saveInvoice({ ...invoiceData, xeroId: xeroBill?.id, status: 'synced', photoDataUrl });
+      Store.saveInvoice({ ...invoiceData, xeroId: xeroBill?.id, status: 'synced' });
       App.toast(`${supplier} · $${exGst.toFixed(2)} ex GST sent to Xero`);
       resetForm();
       loadTodayInvoices();
@@ -199,24 +194,29 @@ const InvoiceModule = (() => {
       resetForm();
       loadTodayInvoices();
     } finally {
-      if (btn) { btn.disabled = false; btn.innerHTML = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="22" y1="2" x2="11" y2="13"></line><polygon points="22 2 15 22 11 13 2 9 22 2"></polygon></svg> Save &amp; send to Xero'; }
+      if (btn) {
+        btn.disabled = false;
+        btn.innerHTML = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="22" y1="2" x2="11" y2="13"></line><polygon points="22 2 15 22 11 13 2 9 22 2"></polygon></svg> Save &amp; send to Xero';
+      }
     }
   }
 
   function resetForm() {
-    photoDataUrl = null; photoBlob = null;
+    photoDataUrl = null;
     renderForm();
-    document.getElementById('invoice-file-input')?.addEventListener('change', handlePhoto);
   }
 
-  // ── Lists ─────────────────────────────────────
+  // ── Today's invoice list ──────────────────────
 
   function loadTodayInvoices() {
-    const today = new Date().toISOString().slice(0, 10);
+    const today = new Date().toLocaleDateString('sv-SE', { timeZone: 'Australia/Brisbane' });
     const list = document.getElementById('invoice-list');
     const invoices = Store.getInvoices(today);
     if (!list) return;
-    if (!invoices.length) { list.innerHTML = '<div class="empty-state">No invoices entered today</div>'; return; }
+    if (!invoices.length) {
+      list.innerHTML = '<div class="empty-state">No invoices entered today</div>';
+      return;
+    }
     list.innerHTML = '<div class="card">' + invoices.map(inv => `
       <div class="invoice-item">
         <div class="invoice-icon">
@@ -226,22 +226,28 @@ const InvoiceModule = (() => {
           }
         </div>
         <div class="invoice-info">
-          <div class="invoice-supplier">${escHtml(inv.supplier||'—')}</div>
-          <div class="invoice-meta">${inv.invoiceNo||'—'} · ex GST $${(inv.subtotal||0).toFixed(2)}</div>
+          <div class="invoice-supplier">${escHtml(inv.supplier || '—')}</div>
+          <div class="invoice-meta">${inv.invoiceNo || '—'} · ex GST $${(inv.subtotal || 0).toFixed(2)}</div>
         </div>
         <div class="invoice-right">
-          <div class="invoice-amount">$${(inv.totalIncGst||inv.total||0).toFixed(2)}</div>
-          <span class="invoice-status ${inv.status==='synced'?'status-synced':'status-draft'}">
-            ${inv.status==='synced'?'In Xero':'Pending'}
+          <div class="invoice-amount">$${(inv.totalIncGst || inv.total || 0).toFixed(2)}</div>
+          <span class="invoice-status ${inv.status === 'synced' ? 'status-synced' : 'status-draft'}">
+            ${inv.status === 'synced' ? 'In Xero' : 'Pending'}
           </span>
         </div>
       </div>
     `).join('') + '</div>';
   }
 
+  // ── Pending Xero bills ─────────────────────────
+
   async function loadPendingXero() {
     const list = document.getElementById('pending-xero-list');
     if (!list) return;
+    if (!XeroAPI.isConnected()) {
+      list.innerHTML = '<div class="empty-state">Connect Xero in Settings to see draft bills</div>';
+      return;
+    }
     try {
       const bills = await XeroAPI.getDraftBills();
       const drafts = bills.filter(b => b.status === 'DRAFT').slice(0, 5);
@@ -252,23 +258,27 @@ const InvoiceModule = (() => {
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline></svg>
           </div>
           <div class="invoice-info">
-            <div class="invoice-supplier">${escHtml(b.supplier||'—')}</div>
-            <div class="invoice-meta">${b.invoiceNo||'—'} · Due ${b.dueDate?new Date(b.dueDate+'T12:00:00').toLocaleDateString('en-AU',{day:'numeric',month:'short'}):'—'}</div>
+            <div class="invoice-supplier">${escHtml(b.supplier || '—')}</div>
+            <div class="invoice-meta">${b.invoiceNo || '—'} · Due ${b.dueDate ? new Date(b.dueDate + 'T12:00:00').toLocaleDateString('en-AU', { day: 'numeric', month: 'short' }) : '—'}</div>
           </div>
           <div class="invoice-right">
-            <div class="invoice-amount">$${(b.amount||0).toFixed(2)}</div>
+            <div class="invoice-amount">$${(b.amount || 0).toFixed(2)}</div>
             <span class="invoice-status status-draft">Code in Xero</span>
           </div>
         </div>
       `).join('') + '</div>';
-    } catch(e) {
+    } catch (e) {
       list.innerHTML = '<div class="empty-state">Could not load Xero bills</div>';
     }
   }
 
-  function setEl(id, v) { const el = document.getElementById(id); if (el) el.textContent = v; }
-  function escHtml(s) { return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+  // ── Helpers ───────────────────────────────────
 
-  return { init, triggerPhoto, triggerLibrary, calcFromTotal, save };
+  function setEl(id, v) { const el = document.getElementById(id); if (el) el.textContent = v; }
+  function escHtml(s) {
+    return String(s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+  }
+
+  return { init, calcFromTotal, save };
 
 })();

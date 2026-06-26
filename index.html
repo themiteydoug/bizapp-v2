@@ -102,17 +102,17 @@
             </div>
             <div class="cost-bar-wrap"><div class="cost-bar cogs" id="bar-cogs"></div></div>
 
-            <div class="cost-row">
+            <div class="cost-row" id="cost-oh-row">
               <div class="cost-info">
                 <div class="cost-name">Overheads</div>
-                <div class="cost-sub">From Xero bills</div>
+                <div class="cost-sub">See 12-week avg below</div>
               </div>
               <div class="cost-right">
                 <div class="cost-amount" id="cost-oh">$—</div>
                 <div class="cost-pct" id="cost-oh-pct">—%</div>
               </div>
             </div>
-            <div class="cost-bar-wrap"><div class="cost-bar overhead" id="bar-oh"></div></div>
+            <div class="cost-bar-wrap" id="bar-oh-wrap"><div class="cost-bar overhead" id="bar-oh"></div></div>
 
             <div class="cost-divider"></div>
             <div class="cost-row net-row">
@@ -350,6 +350,8 @@
             <h1 class="page-title">Staff mapping</h1>
             <p class="page-subtitle">Payroll categories · Fast Food Award</p>
           </div>
+
+          <div id="staff-import-container"></div>
 
           <div class="section-label">Employees</div>
           <div id="staff-list">
