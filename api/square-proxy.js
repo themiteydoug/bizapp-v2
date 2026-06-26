@@ -64,13 +64,20 @@ module.exports = async (req, res) => {
   const queryParams = { ...req.query };
   delete queryParams.endpoint;
 
-  // Inject location_id server-side where needed
+  // Inject location_id server-side where needed (only if env var is actually set)
+  const locationId = process.env.SQUARE_LOCATION_ID;
   if (
+    locationId &&
     (endpoint.startsWith('/cash-drawers') || endpoint.startsWith('/labor/shifts') || endpoint.startsWith('/employees')) &&
     !queryParams.location_id
   ) {
-    queryParams.location_id = process.env.SQUARE_LOCATION_ID;
+    queryParams.location_id = locationId;
   }
+
+  // Strip any undefined values to avoid sending literal "undefined" to Square
+  Object.keys(queryParams).forEach(k => {
+    if (queryParams[k] === undefined || queryParams[k] === 'undefined') delete queryParams[k];
+  });
 
   const queryString = Object.keys(queryParams).length
     ? '?' + new URLSearchParams(queryParams).toString()
@@ -89,6 +96,11 @@ module.exports = async (req, res) => {
     requestBody = JSON.stringify(parsed);
   } else if (req.body) {
     requestBody = typeof req.body === 'string' ? req.body : JSON.stringify(req.body);
+  }
+
+  // Debug mode: return the URL we'd call without actually calling Square
+  if (req.query._debug === '1') {
+    return res.status(200).json({ url, locationId: locationId || '(not set)', queryParams });
   }
 
   try {
