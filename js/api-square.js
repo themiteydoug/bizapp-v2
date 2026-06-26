@@ -216,14 +216,20 @@ const SquareAPI = (() => {
       };
     }
     // location_id injected server-side by square-proxy
-    const data = await proxyFetch('/cash-drawers/shifts');
-    const shifts = data.cash_drawer_shifts || [];
+    const listData = await proxyFetch('/cash-drawers/shifts');
+    const shifts = listData.cash_drawer_shifts || [];
     const todayShift = shifts.find(s => s.opened_at &&
       new Date(s.opened_at).toLocaleDateString('sv-SE', { timeZone: 'Australia/Brisbane' }) === dateStr);
-    if (!todayShift) return { startingCash:0, cashSales:0, cashRefunds:0, paidIn:0, paidOut:0, expected:0, paidInOutItems:[] };
+    if (!todayShift) return { startingCash:0, cashSales:0, cashRefunds:0, paidIn:0, paidOut:0, expected:0, expectedInDrawer:0, paidInOutItems:[] };
 
-    const detailData = await proxyFetch(`/cash-drawers/shifts/${todayShift.id}/events`);
-    const events = detailData.cash_drawer_shift_events || [];
+    // Fetch full shift detail in parallel with events — list endpoint omits cash_payment_money for open shifts
+    const [shiftDetail, eventsData] = await Promise.all([
+      proxyFetch(`/cash-drawers/shifts/${todayShift.id}`),
+      proxyFetch(`/cash-drawers/shifts/${todayShift.id}/events`),
+    ]);
+    const shift  = shiftDetail.cash_drawer_shift || todayShift;
+    const events = eventsData.cash_drawer_shift_events || [];
+
     const paidInOutItems = events
       .filter(e => e.event_type === 'PAID_IN' || e.event_type === 'PAID_OUT')
       .map(e => ({
@@ -233,9 +239,9 @@ const SquareAPI = (() => {
       }));
     const paidIn  = paidInOutItems.filter(e => e.type === 'in').reduce((a, e) => a + e.amount, 0);
     const paidOut = paidInOutItems.filter(e => e.type === 'out').reduce((a, e) => a + e.amount, 0);
-    const startingCash = (todayShift.opened_cash_money?.amount || 0) / 100;
-    const cashSales    = (todayShift.cash_payment_money?.amount || 0) / 100;
-    const cashRefunds  = (todayShift.cash_refunds_money?.amount || 0) / 100;
+    const startingCash = (shift.opened_cash_money?.amount  || 0) / 100;
+    const cashSales    = (shift.cash_payment_money?.amount  || 0) / 100;
+    const cashRefunds  = (shift.cash_refunds_money?.amount  || 0) / 100;
     const expected     = startingCash + cashSales - cashRefunds + paidIn - paidOut;
     return { startingCash, cashSales, cashRefunds, paidIn, paidOut, expected, expectedInDrawer: expected, paidInOutItems };
   }
