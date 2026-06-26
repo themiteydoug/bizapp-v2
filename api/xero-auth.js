@@ -41,7 +41,8 @@ module.exports = async (req, res) => {
       if (!code) return res.status(400).json({ error: 'Missing code' });
       tokenParams.grant_type   = 'authorization_code';
       tokenParams.code         = code;
-      tokenParams.redirect_uri = process.env.XERO_REDIRECT_URI;
+      tokenParams.redirect_uri = process.env.XERO_REDIRECT_URI
+        || 'https://bizapp-v2.vercel.app/xero-callback.html';
     } else {
       if (!refresh_token) return res.status(400).json({ error: 'Missing refresh_token' });
       tokenParams.grant_type    = 'refresh_token';
