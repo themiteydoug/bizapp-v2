@@ -25,7 +25,7 @@ const InvoiceModule = (() => {
   // ── Form ──────────────────────────────────────
 
   function renderForm() {
-    const container = document.getElementById('invoice-form-container');
+    const container = document.getElementById('invoice-form');
     if (!container) return;
     const suppliers = getPastSuppliers();
     const todayBrisbane = new Date().toLocaleDateString('sv-SE', { timeZone: 'Australia/Brisbane' });

@@ -205,87 +205,12 @@
             <h1 class="page-title">Cash rec.</h1>
             <p class="page-subtitle" id="cash-date-label">End of day reconciliation</p>
           </div>
-
-          <!-- Square drawer report (auto-filled) -->
-          <div class="section-label">Square drawer report</div>
-          <div class="card">
-            <div class="drawer-row">
-              <span class="drawer-label">Starting cash</span>
-              <span class="drawer-value" id="sq-starting">$—</span>
-            </div>
-            <div class="drawer-row">
-              <span class="drawer-label">Cash sales</span>
-              <span class="drawer-value" id="sq-cash-sales">$—</span>
-            </div>
-            <div class="drawer-row">
-              <span class="drawer-label">Cash refunds</span>
-              <span class="drawer-value" id="sq-refunds">$—</span>
-            </div>
-            <div class="drawer-row">
-              <span class="drawer-label">Paid in / out</span>
-              <span class="drawer-value" id="sq-paid-inout">$—</span>
-            </div>
-            <!-- Paid in/out detail items -->
-            <div id="paid-inout-detail" style="display:none;padding:4px 0 4px 12px;border-top:1px solid var(--border);margin-top:4px"></div>
-            <div class="cost-divider"></div>
-            <div class="drawer-row">
-              <span class="drawer-label" style="font-weight:600">Expected in drawer</span>
-              <span class="drawer-value" id="sq-expected" style="font-weight:600;color:var(--green-600)">$—</span>
-            </div>
-          </div>
-
-          <!-- Notes count -->
-          <div class="section-label">Notes count ($5 and above)</div>
-          <div class="card">
-            <div class="denomination-grid" id="notes-grid"></div>
-            <div style="display:flex;justify-content:space-between;align-items:center;padding-top:8px;border-top:1px solid var(--border)">
-              <span style="font-size:13px;font-weight:500;color:var(--text-2)">Notes subtotal</span>
-              <span style="font-family:var(--mono);font-size:14px;font-weight:500;color:var(--text-1)" id="notes-subtotal">$0.00</span>
-            </div>
-          </div>
-
-          <!-- Coins count -->
-          <div class="section-label">Coins count ($2 and below)</div>
-          <div class="card">
-            <div class="denomination-grid" id="coins-grid"></div>
-            <div style="display:flex;justify-content:space-between;align-items:center;padding-top:8px;border-top:1px solid var(--border)">
-              <span style="font-size:13px;font-weight:500;color:var(--text-2)">Coins subtotal</span>
-              <span style="font-family:var(--mono);font-size:14px;font-weight:500;color:var(--text-1)" id="coins-subtotal">$0.00</span>
-            </div>
-          </div>
-
-          <!-- Result -->
-          <div class="section-label">Reconciliation result</div>
-          <div class="card">
-            <div class="drawer-row">
-              <span class="drawer-label">Actual in drawer</span>
-              <span class="drawer-value" id="actual-in-drawer">$0.00</span>
-            </div>
-            <div class="drawer-row">
-              <span class="drawer-label">Expected in drawer</span>
-              <span class="drawer-value" id="sq-expected-2">—</span>
-            </div>
-            <div class="cost-divider"></div>
-            <div class="drawer-row">
-              <span class="drawer-label" style="font-weight:600">Difference</span>
-              <div class="read-field" id="cash-difference" data-state="neutral" style="flex:0;min-width:140px;justify-content:flex-end">—</div>
-            </div>
-          </div>
-
-          <!-- Notes -->
-          <div class="section-label">Notes</div>
-          <div class="card">
-            <textarea class="field-textarea" id="cash-notes"
-              placeholder="Any discrepancies or notes for the manager…" rows="3"></textarea>
-          </div>
-
-          <button class="primary-btn full-btn" id="save-cash-btn">Save reconciliation</button>
-
-          <div class="section-label">Previous reconciliations</div>
-          <div id="cash-history">
-            <div class="empty-state">No previous records</div>
-          </div>
-
+          <!-- Tab bar rendered by CashModule.renderTabs() -->
+          <div id="cash-tabs"></div>
+          <!-- Daily section rendered by CashModule.renderDailyPage() -->
+          <div id="cash-daily-section"></div>
+          <!-- Weekly section rendered by CashModule.renderWeeklyPage() -->
+          <div id="cash-weekly-section"></div>
         </div>
       </section>
 

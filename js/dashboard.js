@@ -64,6 +64,7 @@ const Dashboard = (() => {
       App.toast('Sync error: ' + e.message, 'error');
     } finally {
       if (syncBtn) syncBtn.classList.remove('spinning');
+      updateSyncTime();
     }
   }
 

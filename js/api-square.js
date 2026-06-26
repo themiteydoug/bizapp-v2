@@ -161,6 +161,24 @@ const SquareAPI = (() => {
     return fetchTimesheetsReal(weekStart, weekEnd);
   }
 
+  async function getWeeklyTotals(weekStart, weekEnd) {
+    if (CONFIG.FEATURES.DEMO_MODE) {
+      await delay(600);
+      return { cashSales: 850.40, cardSales: 18290.00, total: 19140.40, refunds: 45.00, paidIn: 0, paidOut: 0 };
+    }
+    const start = new Date(weekStart + 'T12:00:00');
+    const end   = new Date(weekEnd   + 'T12:00:00');
+    const days  = [];
+    for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
+      days.push(d.toISOString().slice(0, 10));
+    }
+    const results = await Promise.all(days.map(ds => fetchTakingsReal(ds).catch(() => ({ total: 0, cash: 0, card: 0 }))));
+    return results.reduce(
+      (acc, r) => ({ ...acc, cashSales: acc.cashSales + (r.cash || 0), cardSales: acc.cardSales + (r.card || 0), total: acc.total + (r.total || 0) }),
+      { cashSales: 0, cardSales: 0, total: 0, refunds: 0, paidIn: 0, paidOut: 0 }
+    );
+  }
+
   async function getStaffList() {
     if (CONFIG.FEATURES.DEMO_MODE) { await delay(400); return Store.getStaff(); }
     const data = await proxyFetch('/team-members');
@@ -203,6 +221,6 @@ const SquareAPI = (() => {
 
   function delay(ms) { return new Promise(r => setTimeout(r, ms)); }
 
-  return { getTakings, getWeekTimesheets, getStaffList, getDrawerReport };
+  return { getTakings, getWeekTimesheets, getWeeklyTotals, getStaffList, getDrawerReport };
 
 })();
