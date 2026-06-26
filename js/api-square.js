@@ -78,11 +78,13 @@ const SquareAPI = (() => {
       query: {
         filter: {
           date_time_filter: { created_at: { start_at: startAt, end_at: endAt } },
-          state_filter: { states: ['COMPLETED'] },
         },
       },
+      limit: 500,
     });
-    const orders = data.orders || [];
+    // Any order with tenders has been paid — this captures COMPLETED and any
+    // paid OPEN orders (e.g. dine-in tabs where the ticket wasn't formally closed)
+    const orders = (data.orders || []).filter(o => o.tenders?.length > 0);
     let total = 0, card = 0;
     orders.forEach(o => {
       total += (o.total_money?.amount || 0) / 100;
@@ -94,17 +96,20 @@ const SquareAPI = (() => {
   }
 
   async function fetchWeeklyCashFromDrawers(weekStart, weekEnd) {
-    const listData = await proxyFetch('/cash-drawers/shifts', 'GET', null, {
-      begin_time: weekStart + 'T00:00:00+10:00',
-      end_time:   weekEnd   + 'T23:59:59+10:00',
+    // Fetch all shifts without date params (same approach as getDrawerReport)
+    // and filter client-side — avoids Square API quirks with begin_time/end_time
+    const listData = await proxyFetch('/cash-drawers/shifts');
+    const shifts = (listData.cash_drawer_shifts || []).filter(s => {
+      if (!s.opened_at) return false;
+      const date = new Date(s.opened_at).toLocaleDateString('sv-SE', { timeZone: 'Australia/Brisbane' });
+      return date >= weekStart && date <= weekEnd;
     });
-    const shifts = listData.cash_drawer_shifts || [];
     let cash = 0;
     for (const s of shifts) {
       if (s.cash_payment_money?.amount != null) {
         cash += s.cash_payment_money.amount / 100;
       } else {
-        // Open shift — cash_payment_money is omitted from list; fetch full detail
+        // Open shift — cash_payment_money omitted from list; fetch full detail
         const detail = await proxyFetch(`/cash-drawers/shifts/${s.id}`).catch(() => ({}));
         cash += (detail.cash_drawer_shift?.cash_payment_money?.amount || 0) / 100;
       }
