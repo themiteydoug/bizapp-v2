@@ -119,7 +119,7 @@ module.exports = async (req, res) => {
       headers: {
         'Authorization': `Bearer ${process.env.SQUARE_ACCESS_TOKEN}`,
         'Content-Type': 'application/json',
-        'Square-Version': '2024-01-18',
+        'Square-Version': '2026-05-20',
       },
       body: requestBody,
     });

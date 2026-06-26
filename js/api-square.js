@@ -103,7 +103,6 @@ const SquareAPI = (() => {
 
   async function fetchTimesheetsReal(weekStart, weekEnd) {
     // Square Team Plus Legacy: POST /labor/timecards/search
-    const locationId = ''; // injected server-side from SQUARE_LOCATION_ID
     const data = await proxyFetch('/labor/timecards/search', 'POST', {
       query: {
         filter: {

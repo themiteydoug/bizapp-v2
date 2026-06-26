@@ -31,7 +31,7 @@ const ALLOWED_PAYROLL_ENDPOINTS = [
 const corsHeaders = {
   'Access-Control-Allow-Origin':  ALLOWED_ORIGIN,
   'Access-Control-Allow-Methods': 'GET, POST, PUT, OPTIONS',
-  'Access-Control-Allow-Headers': 'Content-Type, X-Access-Token',
+  'Access-Control-Allow-Headers': 'Content-Type, X-Access-Token, X-Refresh-Token',
 };
 
 // Attempt a token refresh using the stored refresh_token header

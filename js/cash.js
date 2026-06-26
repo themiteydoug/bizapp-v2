@@ -41,10 +41,12 @@ const CashModule = (() => {
     if (!container) return;
     container.innerHTML = `
       <div class="tab-bar">
-        <button class="tab-btn active" id="tab-daily"  onclick="CashModule.switchTab('daily')">Daily rec</button>
-        <button class="tab-btn"        id="tab-weekly" onclick="CashModule.switchTab('weekly')">Weekly banking</button>
+        <button class="tab-btn active" id="tab-daily">Daily rec</button>
+        <button class="tab-btn"        id="tab-weekly">Weekly banking</button>
       </div>
     `;
+    container.querySelector('#tab-daily').addEventListener('click',  () => switchTab('daily'));
+    container.querySelector('#tab-weekly').addEventListener('click', () => switchTab('weekly'));
   }
 
   function switchTab(tab) {

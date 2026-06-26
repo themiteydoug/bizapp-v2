@@ -16,22 +16,38 @@ export const config = {
 };
 
 export default async function handler(req) {
+  const origin = req.headers.get('origin') || '';
+  const allowed = process.env.APP_ORIGIN || '';
+
+  const corsHeaders = {
+    'Content-Type': 'application/json',
+    'Access-Control-Allow-Origin': allowed || '*',
+  };
+
+  if (req.method === 'OPTIONS') {
+    return new Response(null, {
+      status: 204,
+      headers: {
+        ...corsHeaders,
+        'Access-Control-Allow-Methods': 'POST, OPTIONS',
+        'Access-Control-Allow-Headers': 'Content-Type',
+      },
+    });
+  }
 
   // Only allow POST
   if (req.method !== 'POST') {
     return new Response(JSON.stringify({ error: 'Method not allowed' }), {
       status: 405,
-      headers: { 'Content-Type': 'application/json' },
+      headers: corsHeaders,
     });
   }
 
   // Basic origin check — only allow requests from your own domain
-  const origin = req.headers.get('origin') || '';
-  const allowed = process.env.ALLOWED_ORIGIN || ''; // set in Vercel env vars
   if (allowed && origin !== allowed) {
     return new Response(JSON.stringify({ error: 'Forbidden' }), {
       status: 403,
-      headers: { 'Content-Type': 'application/json' },
+      headers: corsHeaders,
     });
   }
 
@@ -39,7 +55,7 @@ export default async function handler(req) {
   if (!apiKey) {
     return new Response(JSON.stringify({ error: 'API key not configured on server' }), {
       status: 500,
-      headers: { 'Content-Type': 'application/json' },
+      headers: corsHeaders,
     });
   }
 
@@ -55,7 +71,7 @@ export default async function handler(req) {
         'anthropic-version': '2023-06-01',
       },
       body: JSON.stringify({
-        model:      'claude-opus-4-20250514',
+        model:      'claude-haiku-4-5-20251001',
         max_tokens: 1000,
         messages:   body.messages,  // passed from the app
       }),
@@ -66,22 +82,19 @@ export default async function handler(req) {
     if (!anthropicRes.ok) {
       return new Response(JSON.stringify({ error: data.error?.message || 'Anthropic error' }), {
         status: anthropicRes.status,
-        headers: { 'Content-Type': 'application/json' },
+        headers: corsHeaders,
       });
     }
 
     return new Response(JSON.stringify(data), {
       status: 200,
-      headers: {
-        'Content-Type': 'application/json',
-        'Access-Control-Allow-Origin': allowed || '*',
-      },
+      headers: corsHeaders,
     });
 
   } catch (err) {
     return new Response(JSON.stringify({ error: err.message }), {
       status: 500,
-      headers: { 'Content-Type': 'application/json' },
+      headers: corsHeaders,
     });
   }
 }

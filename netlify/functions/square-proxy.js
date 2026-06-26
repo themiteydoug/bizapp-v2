@@ -17,9 +17,11 @@ const SQUARE_BASE = process.env.SQUARE_ENVIRONMENT === 'sandbox'
 const ALLOWED_ENDPOINTS = [
   '/orders/search',
   '/labor/shifts',
+  '/labor/timecards',
   '/team-members',
   '/cash-drawers/shifts',
   '/locations',
+  '/payouts',
 ];
 
 exports.handler = async (event) => {
@@ -66,7 +68,7 @@ exports.handler = async (event) => {
   let queryParams = event.queryStringParameters ? { ...event.queryStringParameters } : {};
   delete queryParams.endpoint;
   if (
-    (endpoint.startsWith('/cash-drawers') || endpoint.startsWith('/labor/shifts')) &&
+    (endpoint.startsWith('/cash-drawers') || endpoint.startsWith('/labor/')) &&
     !queryParams.location_id
   ) {
     queryParams.location_id = process.env.SQUARE_LOCATION_ID;
@@ -78,13 +80,23 @@ exports.handler = async (event) => {
 
   const url = `${SQUARE_BASE}${targetEndpoint}${queryString}`;
 
-  // For orders/search POST: inject location_ids into body if missing
+  // For POST endpoints: inject location_id(s) into body server-side
   let requestBody = event.body || undefined;
-  if (endpoint === '/orders/search' && event.httpMethod === 'POST' && event.body) {
+  if (event.httpMethod === 'POST' && event.body) {
     try {
       const parsed = JSON.parse(event.body);
-      if (!parsed.location_ids?.length) {
-        parsed.location_ids = [process.env.SQUARE_LOCATION_ID];
+      const locationId = process.env.SQUARE_LOCATION_ID;
+      if (endpoint === '/orders/search') {
+        if (!parsed.location_ids?.length) parsed.location_ids = [locationId];
+      }
+      if (endpoint === '/labor/timecards/search') {
+        const filter = parsed.query?.filter;
+        if (filter && !filter.location_ids?.length) filter.location_ids = [locationId];
+      }
+      if (endpoint === '/team-members/search') {
+        if (!parsed.query) parsed.query = {};
+        if (!parsed.query.filter) parsed.query.filter = {};
+        if (!parsed.query.filter.location_ids?.length) parsed.query.filter.location_ids = [locationId];
       }
       requestBody = JSON.stringify(parsed);
     } catch (_) { /* leave body as-is */ }
