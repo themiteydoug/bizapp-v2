@@ -87,21 +87,49 @@ const SquareAPI = (() => {
     let total = 0, cash = 0, card = 0;
     orders.forEach(o => {
       total += (o.total_money?.amount || 0) / 100;
-      // Map tender id → type so refunds can be attributed to the right bucket
       const tenderType = {};
       (o.tenders || []).forEach(t => {
         tenderType[t.id] = t.type;
         if (t.type === 'CASH') cash += (t.amount_money?.amount || 0) / 100;
         else                   card += (t.amount_money?.amount || 0) / 100;
       });
-      // Deduct refunds from the correct bucket (total stays gross)
+      // Square v2 may not return o.refunds[] — log the first occurrence so we know
       (o.refunds || []).forEach(r => {
         const amt = (r.amount_money?.amount || 0) / 100;
         if (tenderType[r.tender_id] === 'CASH') cash -= amt;
         else                                    card -= amt;
       });
     });
+    const refundOrders = orders.filter(o => o.refunds?.length > 0);
+    console.log(`[Square ${dateStr}] orders=${orders.length} total=${total.toFixed(2)} cash=${cash.toFixed(2)} refundOrders=${refundOrders.length}`, refundOrders[0]?.refunds?.[0] ?? '(o.refunds empty — Square v2 API does not embed refunds in orders search)');
     return { date: dateStr, total, cash, card, transactions: orders.length };
+  }
+
+  // Fetch weekly NET cash directly from the cash drawer shifts API.
+  // This is more reliable than deducting refunds from orders because Square's
+  // v2 Orders search does not always embed the refunds[] array.
+  async function fetchWeeklyCashFromDrawers(weekStart, weekEnd) {
+    // Pass date range server-side so Square filters for us (avoids timezone edge cases)
+    const listData = await proxyFetch('/cash-drawers/shifts', 'GET', null, {
+      begin_time: weekStart + 'T00:00:00+10:00',
+      end_time:   weekEnd   + 'T23:59:59+10:00',
+      limit: 50,
+    });
+    const shifts = listData.cash_drawer_shifts || [];
+    console.log(`[Square drawers] ${weekStart}–${weekEnd}: ${shifts.length} shift(s)`, shifts.map(s => ({ id: s.id?.slice(-8), state: s.state, opened: s.opened_at?.slice(0, 10) })));
+    if (!shifts.length) return 0;
+    const details = await Promise.all(
+      shifts.map(s => proxyFetch(`/cash-drawers/shifts/${s.id}`).catch(() => null))
+    );
+    let drawerTotal = 0;
+    details.forEach((d, i) => {
+      const shift = d?.cash_drawer_shift;
+      const amt = (shift?.cash_payment_money?.amount || 0) / 100;
+      console.log(`[Square drawers] shift ${shifts[i].id?.slice(-8)}: state=${shift?.state} cash_payment_money=${amt}`);
+      drawerTotal += amt;
+    });
+    console.log('[Square drawers] weekly NET cash:', drawerTotal.toFixed(2));
+    return drawerTotal;
   }
 
   async function fetchTimesheetsReal(weekStart, weekEnd) {
@@ -190,18 +218,23 @@ const SquareAPI = (() => {
     for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
       days.push(d.toISOString().slice(0, 10));
     }
-    const results = await Promise.all(
-      days.map(ds => fetchTakingsReal(ds).catch(() => ({ total: 0, cash: 0, card: 0 })))
-    );
-    return results.reduce(
+    const [orderResults, drawerCash] = await Promise.all([
+      Promise.all(days.map(ds => fetchTakingsReal(ds).catch(() => ({ total: 0, cash: 0, card: 0 })))),
+      fetchWeeklyCashFromDrawers(weekStart, weekEnd).catch(() => 0),
+    ]);
+    const { total, orderCash, cardSales } = orderResults.reduce(
       (acc, r) => ({
-        cashSales:  acc.cashSales  + (r.cash  || 0),
-        cardSales:  acc.cardSales  + (r.card  || 0),
-        total:      acc.total      + (r.total || 0),
-        refunds: 0, paidIn: 0, paidOut: 0,
+        total:     acc.total     + (r.total || 0),
+        orderCash: acc.orderCash + (r.cash  || 0),
+        cardSales: acc.cardSales + (r.card  || 0),
       }),
-      { cashSales: 0, cardSales: 0, total: 0, refunds: 0, paidIn: 0, paidOut: 0 }
+      { total: 0, orderCash: 0, cardSales: 0 }
     );
+    // Drawer gives NET cash (refunds already deducted by Square).
+    // Fall back to order-based cash if drawer returns 0 (open shifts or API issue).
+    const cashSales = drawerCash > 0 ? drawerCash : orderCash;
+    console.log('[Square weekly] drawerCash:', drawerCash.toFixed(2), '| orderCash:', orderCash.toFixed(2), '| using:', cashSales.toFixed(2));
+    return { cashSales, cardSales, total, refunds: 0, paidIn: 0, paidOut: 0 };
   }
 
   async function getStaffList() {
