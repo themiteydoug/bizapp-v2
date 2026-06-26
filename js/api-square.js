@@ -87,21 +87,35 @@ const SquareAPI = (() => {
     let total = 0, cash = 0, card = 0;
     orders.forEach(o => {
       total += (o.total_money?.amount || 0) / 100;
+      const tenders = o.tenders || [];
       const tenderType = {};
-      (o.tenders || []).forEach(t => {
+      tenders.forEach(t => {
         tenderType[t.id] = t.type;
         if (t.type === 'CASH') cash += (t.amount_money?.amount || 0) / 100;
         else                   card += (t.amount_money?.amount || 0) / 100;
       });
-      // Square v2 may not return o.refunds[] — log the first occurrence so we know
-      (o.refunds || []).forEach(r => {
-        const amt = (r.amount_money?.amount || 0) / 100;
-        if (tenderType[r.tender_id] === 'CASH') cash -= amt;
-        else                                    card -= amt;
-      });
+
+      // Deduct refunds. Try o.refunds[] (legacy field) first.
+      // Square v2 often omits this from search results, so also check return_amounts
+      // for single-tender orders where we can safely attribute the return type.
+      const refunds = o.refunds || [];
+      if (refunds.length > 0) {
+        refunds.forEach(r => {
+          const amt = (r.amount_money?.amount || 0) / 100;
+          if (tenderType[r.tender_id] === 'CASH') cash -= amt;
+          else                                    card -= amt;
+        });
+      } else {
+        const returnAmt = (o.return_amounts?.total_money?.amount || 0) / 100;
+        if (returnAmt > 0) {
+          const cashTenders = tenders.filter(t => t.type === 'CASH');
+          const cardTenders = tenders.filter(t => t.type !== 'CASH');
+          if (cardTenders.length === 0) cash -= returnAmt; // all-cash order
+          else if (cashTenders.length === 0) card -= returnAmt; // all-card order
+          // split-tender: can't determine split without refund detail — skip
+        }
+      }
     });
-    const refundOrders = orders.filter(o => o.refunds?.length > 0);
-    console.log(`[Square ${dateStr}] orders=${orders.length} total=${total.toFixed(2)} cash=${cash.toFixed(2)} refundOrders=${refundOrders.length}`, refundOrders[0]?.refunds?.[0] ?? '(o.refunds empty — Square v2 API does not embed refunds in orders search)');
     return { date: dateStr, total, cash, card, transactions: orders.length };
   }
 
@@ -109,13 +123,16 @@ const SquareAPI = (() => {
   // Returns { cash: gross_cash_payments, refunds: cash_refunds } so the UI
   // can display gross → deduction → net without extra API calls.
   async function fetchWeeklyCashFromDrawers(weekStart, weekEnd) {
-    const listData = await proxyFetch('/cash-drawers/shifts', 'GET', null, {
-      begin_time: weekStart + 'T00:00:00+10:00',
-      end_time:   weekEnd   + 'T23:59:59+10:00',
-      limit: 50,
+    // No date filter on the list call — same pattern as getDrawerReport which works.
+    // Server-side begin_time/end_time filtering caused empty results (encoding issue).
+    const listData = await proxyFetch('/cash-drawers/shifts');
+    const allShifts = listData.cash_drawer_shifts || [];
+    const shifts = allShifts.filter(s => {
+      if (!s.opened_at) return false;
+      const d = new Date(s.opened_at).toLocaleDateString('sv-SE', { timeZone: 'Australia/Brisbane' });
+      return d >= weekStart && d <= weekEnd;
     });
-    const shifts = listData.cash_drawer_shifts || [];
-    console.log(`[Square drawers] ${weekStart}–${weekEnd}: ${shifts.length} shift(s)`, shifts.map(s => ({ id: s.id?.slice(-8), state: s.state, opened: s.opened_at?.slice(0, 10) })));
+    console.log(`[Square drawers] ${weekStart}–${weekEnd}: ${shifts.length}/${allShifts.length} shift(s)`, shifts.map(s => ({ id: s.id?.slice(-8), state: s.state, opened: s.opened_at?.slice(0, 10) })));
     if (!shifts.length) return { cash: 0, refunds: 0 };
     const details = await Promise.all(
       shifts.map(s => proxyFetch(`/cash-drawers/shifts/${s.id}`).catch(() => null))
