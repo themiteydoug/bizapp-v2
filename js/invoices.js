@@ -330,6 +330,6 @@ const InvoiceModule = (() => {
     return String(s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
   }
 
-  return { init, calcFromTotal, save };
+  return { init, calcGST, save };
 
 })();
