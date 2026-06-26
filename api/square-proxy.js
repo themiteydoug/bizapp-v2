@@ -89,7 +89,9 @@ module.exports = async (req, res) => {
 
   const url = `${SQUARE_BASE}${targetEndpoint}${queryString}`;
 
-  // For POST endpoints: inject location_id(s) into body server-side
+  // Only POST requests carry a body. GET/HEAD must never have one — Square's
+  // fetch rejects "Request with GET/HEAD method cannot have body." Vercel parses
+  // an empty JSON body into req.body={} even on GETs, so guard strictly on method.
   let requestBody;
   if (req.method === 'POST' && req.body) {
     const parsed = typeof req.body === 'string' ? JSON.parse(req.body) : req.body;
@@ -106,8 +108,6 @@ module.exports = async (req, res) => {
       if (!parsed.query.filter.location_ids?.length) parsed.query.filter.location_ids = [locationId];
     }
     requestBody = JSON.stringify(parsed);
-  } else if (req.body) {
-    requestBody = typeof req.body === 'string' ? req.body : JSON.stringify(req.body);
   }
 
   // Debug mode: return the URL we'd call without actually calling Square
