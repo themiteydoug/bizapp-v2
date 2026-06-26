@@ -98,7 +98,13 @@ const XeroAPI = (() => {
 
     if (!res.ok) {
       let msg = `Xero API error ${res.status}`;
-      try { const e = await res.json(); msg = e.error || e.message || msg; } catch {}
+      try {
+        const e = await res.json();
+        // Surface whichever field carries the real cause — our proxy uses
+        // lowercase error/detail; Xero's own errors use Detail/Message/Title.
+        msg = e.error || e.detail || e.Detail || e.Message || e.Title || msg;
+        console.error(`[Xero proxy] ${endpoint} → ${res.status}`, e);
+      } catch {}
       throw new Error(msg);
     }
 

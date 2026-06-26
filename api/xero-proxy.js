@@ -78,7 +78,12 @@ module.exports = async (req, res) => {
   const qs = Object.keys(queryParams).length ? '?' + new URLSearchParams(queryParams) : '';
   const url = `${base}${endpoint}${qs}`;
 
-  const requestBody = req.body
+  // GET/HEAD must never carry a body — Xero's fetch rejects it with
+  // "Request with GET/HEAD method cannot have body." Vercel parses an empty
+  // JSON body into req.body={} even on GETs, so guard strictly on method.
+  const hasBody = req.method !== 'GET' && req.method !== 'HEAD' && req.body
+    && !(typeof req.body === 'object' && Object.keys(req.body).length === 0);
+  const requestBody = hasBody
     ? (typeof req.body === 'string' ? req.body : JSON.stringify(req.body))
     : undefined;
 
@@ -116,9 +121,22 @@ module.exports = async (req, res) => {
       }
     }
 
-    const data = await response.json();
+    // Read as text first so a non-JSON upstream body doesn't throw and mask the error
+    const rawText = await response.text();
+    let data;
+    try {
+      data = JSON.parse(rawText);
+    } catch {
+      return res.status(response.ok ? 502 : response.status).json({
+        error: 'Xero returned non-JSON response',
+        _debug: { url, xeroStatus: response.status, body: rawText.slice(0, 500) },
+      });
+    }
+    if (!response.ok) {
+      return res.status(response.status).json({ ...data, _debug: { url, xeroStatus: response.status } });
+    }
     return res.status(response.status).json(data);
   } catch (err) {
-    return res.status(500).json({ error: 'Xero API request failed', detail: err.message });
+    return res.status(500).json({ error: 'Xero API request failed', detail: err.message, _debug: { url } });
   }
 };
