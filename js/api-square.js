@@ -87,9 +87,21 @@ const SquareAPI = (() => {
     let total = 0, cash = 0, card = 0;
     orders.forEach(o => {
       total += (o.total_money?.amount || 0) / 100;
+
+      // Map tender ID → type so refunds can be attributed to cash vs card
+      const tenderType = {};
       (o.tenders || []).forEach(t => {
+        tenderType[t.id] = t.type;
         if (t.type === 'CASH') cash += (t.amount_money?.amount || 0) / 100;
         else card += (t.amount_money?.amount || 0) / 100;
+      });
+
+      // Subtract refunds — Square attaches them to the original order, not as negative tenders
+      (o.refunds || []).forEach(r => {
+        const amt = (r.amount_money?.amount || 0) / 100;
+        total -= amt;
+        if (tenderType[r.tender_id] === 'CASH') cash -= amt;
+        else card -= amt;
       });
     });
     return {
