@@ -109,12 +109,16 @@ module.exports = async (req, res) => {
       headers: {
         'Authorization': `Bearer ${process.env.SQUARE_ACCESS_TOKEN}`,
         'Content-Type': 'application/json',
-        'Square-Version': '2026-05-20',
+        'Square-Version': '2024-01-18',
       },
       body: requestBody,
     });
 
     const data = await response.json();
+    // Attach debug info on errors so the client can see the exact Square response
+    if (!response.ok) {
+      return res.status(response.status).json({ ...data, _debug: { url, squareStatus: response.status } });
+    }
     return res.status(response.status).json(data);
   } catch (err) {
     return res.status(500).json({ error: 'Square API request failed', detail: err.message });
