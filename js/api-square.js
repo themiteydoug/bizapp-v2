@@ -72,22 +72,44 @@ const SquareAPI = (() => {
   // ── Real Square API calls (via proxy) ─────────
 
   async function fetchTakingsReal(dateStr) {
-    // Use /payments (not /orders/search) — captures all payment types including
-    // contactless/wallet transactions that have no associated order
-    const data = await proxyFetch('/payments', 'GET', null, {
-      begin_time: dateStr + 'T00:00:00+10:00',
-      end_time:   dateStr + 'T23:59:59+10:00',
-      limit:      500,
+    const startAt = dateStr + 'T00:00:00+10:00';
+    const endAt   = dateStr + 'T23:59:59+10:00';
+    const data = await proxyFetch('/orders/search', 'POST', {
+      query: {
+        filter: {
+          date_time_filter: { created_at: { start_at: startAt, end_at: endAt } },
+          state_filter: { states: ['COMPLETED'] },
+        },
+      },
     });
-    const payments = (data.payments || []).filter(p => p.status === 'COMPLETED');
-    let total = 0, cash = 0, card = 0;
-    payments.forEach(p => {
-      const amt = (p.total_money?.amount || 0) / 100;
-      total += amt;
-      if (p.source_type === 'CASH') cash += amt;
-      else card += amt;
+    const orders = data.orders || [];
+    let total = 0, card = 0;
+    orders.forEach(o => {
+      total += (o.total_money?.amount || 0) / 100;
+      (o.tenders || []).forEach(t => {
+        if (t.type !== 'CASH') card += (t.amount_money?.amount || 0) / 100;
+      });
     });
-    return { date: dateStr, total, card, cash, transactions: payments.length };
+    return { date: dateStr, total, card, transactions: orders.length };
+  }
+
+  async function fetchWeeklyCashFromDrawers(weekStart, weekEnd) {
+    const listData = await proxyFetch('/cash-drawers/shifts', 'GET', null, {
+      begin_time: weekStart + 'T00:00:00+10:00',
+      end_time:   weekEnd   + 'T23:59:59+10:00',
+    });
+    const shifts = listData.cash_drawer_shifts || [];
+    let cash = 0;
+    for (const s of shifts) {
+      if (s.cash_payment_money?.amount != null) {
+        cash += s.cash_payment_money.amount / 100;
+      } else {
+        // Open shift — cash_payment_money is omitted from list; fetch full detail
+        const detail = await proxyFetch(`/cash-drawers/shifts/${s.id}`).catch(() => ({}));
+        cash += (detail.cash_drawer_shift?.cash_payment_money?.amount || 0) / 100;
+      }
+    }
+    return cash;
   }
 
   async function fetchTimesheetsReal(weekStart, weekEnd) {
@@ -176,11 +198,15 @@ const SquareAPI = (() => {
     for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
       days.push(d.toISOString().slice(0, 10));
     }
-    const results = await Promise.all(days.map(ds => fetchTakingsReal(ds).catch(() => ({ total: 0, cash: 0, card: 0 }))));
-    return results.reduce(
-      (acc, r) => ({ ...acc, cashSales: acc.cashSales + (r.cash || 0), cardSales: acc.cardSales + (r.card || 0), total: acc.total + (r.total || 0) }),
-      { cashSales: 0, cardSales: 0, total: 0, refunds: 0, paidIn: 0, paidOut: 0 }
+    const [orderResults, cashSales] = await Promise.all([
+      Promise.all(days.map(ds => fetchTakingsReal(ds).catch(() => ({ total: 0, card: 0 })))),
+      fetchWeeklyCashFromDrawers(weekStart, weekEnd).catch(() => 0),
+    ]);
+    const { total, cardSales } = orderResults.reduce(
+      (acc, r) => ({ total: acc.total + (r.total || 0), cardSales: acc.cardSales + (r.card || 0) }),
+      { total: 0, cardSales: 0 }
     );
+    return { cashSales, cardSales, total, refunds: 0, paidIn: 0, paidOut: 0 };
   }
 
   async function getStaffList() {
