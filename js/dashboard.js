@@ -27,7 +27,7 @@ const Dashboard = (() => {
     const syncBtn = document.getElementById('sync-btn');
     if (syncBtn) syncBtn.classList.add('spinning');
 
-    const today = new Date().toISOString().slice(0, 10);
+    const today = new Date().toLocaleDateString('sv-SE', { timeZone: 'Australia/Brisbane' });
 
     try {
       const promises = [SquareAPI.getTakings(today)];
@@ -69,7 +69,7 @@ const Dashboard = (() => {
     // Hours (available to all roles)
     const weekStart = Holidays.getWeekStart();
     SquareAPI.getWeekTimesheets(weekStart).then(ts => {
-      const todayStr = new Date().toISOString().slice(0, 10);
+      const todayStr = new Date().toLocaleDateString('sv-SE', { timeZone: 'Australia/Brisbane' });
       let todayHours = 0, staffCount = 0;
       ts.forEach(emp => {
         const todayShift = emp.shifts.find(s => s.date === todayStr);

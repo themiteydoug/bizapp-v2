@@ -3,7 +3,7 @@
  * Caches ONLY static assets — never API responses or financial data (FIND-004)
  */
 
-const CACHE = 'bizops-v3';
+const CACHE = 'bizops-v4';
 
 // Only static shell files — NO API endpoints
 const STATIC_SHELL = [
@@ -26,6 +26,7 @@ const STATIC_SHELL = [
 // Never cache these — financial/API data
 const NEVER_CACHE = [
   '/.netlify/functions/',
+  '/api/',
   'api.xero.com',
   'connect.squareup.com',
   'identity.xero.com',
