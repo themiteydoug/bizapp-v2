@@ -274,7 +274,7 @@ const XeroAPI = (() => {
       Status: 'DRAFT',
       Contact:       { Name: invoiceData.supplier },
       InvoiceNumber: invoiceData.invoiceNo,
-      DueDate:       invoiceData.dueDate,
+      Date:          invoiceData.invoiceDate,
       LineItems: [{
         Description: invoiceData.description || 'Supplier invoice',
         Quantity:    1,

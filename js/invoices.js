@@ -7,11 +7,45 @@
 const InvoiceModule = (() => {
 
   let photoDataUrl = null;
+  let currentWeekStart = Holidays.getWeekStart();
 
   function init() {
     renderForm();
-    loadTodayInvoices();
+    renderWeekNav();
+    loadWeekInvoices();
     loadPendingXero();
+  }
+
+  function renderWeekNav() {
+    const el = document.getElementById('invoice-week-nav');
+    if (!el) return;
+    el.innerHTML = `
+      <div class="week-selector" style="margin:0 0 4px">
+        <button class="week-nav-btn" id="inv-prev-week">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="15 18 9 12 15 6"></polyline></svg>
+        </button>
+        <div class="week-info" id="inv-week-label">${Holidays.formatWeekLabel(currentWeekStart)}</div>
+        <button class="week-nav-btn" id="inv-next-week">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="9 18 15 12 9 6"></polyline></svg>
+        </button>
+      </div>
+    `;
+    document.getElementById('inv-prev-week').addEventListener('click', () => {
+      const d = new Date(currentWeekStart + 'T12:00:00');
+      d.setDate(d.getDate() - 7);
+      currentWeekStart = d.toISOString().slice(0, 10);
+      document.getElementById('inv-week-label').textContent = Holidays.formatWeekLabel(currentWeekStart);
+      loadWeekInvoices();
+    });
+    document.getElementById('inv-next-week').addEventListener('click', () => {
+      const d = new Date(currentWeekStart + 'T12:00:00');
+      d.setDate(d.getDate() + 7);
+      const next = d.toISOString().slice(0, 10);
+      if (next > new Date().toISOString().slice(0, 10)) return;
+      currentWeekStart = next;
+      document.getElementById('inv-week-label').textContent = Holidays.formatWeekLabel(currentWeekStart);
+      loadWeekInvoices();
+    });
   }
 
   // ── Supplier history ──────────────────────────
@@ -82,11 +116,6 @@ const InvoiceModule = (() => {
           </div>
         </div>
 
-        <div class="field-group">
-          <label class="field-label">Due date</label>
-          <input class="field-input" type="date" id="inv-due">
-        </div>
-
         <div class="cost-divider"></div>
         <div class="field-row-2">
           <div class="field-group">
@@ -96,13 +125,14 @@ const InvoiceModule = (() => {
           </div>
           <div class="field-group">
             <label class="field-label">GST amount ($)</label>
-            <div class="read-field" id="inv-gst-display">$—</div>
+            <input class="field-input" type="number" id="inv-gst"
+              placeholder="auto" step="0.01" inputmode="decimal">
           </div>
         </div>
         <div class="field-group">
           <label class="field-label">Amount ex GST ($)</label>
           <div class="read-field highlight" id="inv-ex-gst">$—</div>
-          <div style="font-size:11px;color:var(--text-3);margin-top:4px">Posted to Xero and used in daily COGS</div>
+          <div style="font-size:11px;color:var(--text-3);margin-top:4px">Posted to Xero and used in COGS. Leave GST blank to auto-calculate (÷11).</div>
         </div>
 
         <div class="field-group">
@@ -120,16 +150,17 @@ const InvoiceModule = (() => {
     // Bind events programmatically — no inline onclick
     document.getElementById('inv-photo-camera').addEventListener('change', handlePhoto);
     document.getElementById('inv-photo-library').addEventListener('change', handlePhoto);
-    document.getElementById('inv-total-gst').addEventListener('input', calcFromTotal);
+    document.getElementById('inv-total-gst').addEventListener('input', calcGST);
+    document.getElementById('inv-gst').addEventListener('input', calcGST);
     document.getElementById('save-invoice-btn').addEventListener('click', save);
   }
 
-  function calcFromTotal() {
+  function calcGST() {
     const total = parseFloat(document.getElementById('inv-total-gst')?.value) || 0;
-    const gst = Math.round((total / 11) * 100) / 100;
+    const manualGst = parseFloat(document.getElementById('inv-gst')?.value);
+    const gst = isNaN(manualGst) ? Math.round((total / 11) * 100) / 100 : manualGst;
     const ex  = Math.round((total - gst) * 100) / 100;
-    setEl('inv-gst-display', total ? '$' + gst.toFixed(2) : '$—');
-    setEl('inv-ex-gst',       total ? '$' + ex.toFixed(2)  : '$—');
+    setEl('inv-ex-gst', total ? '$' + ex.toFixed(2) : '$—');
   }
 
   // ── Photo handling ────────────────────────────
@@ -163,7 +194,8 @@ const InvoiceModule = (() => {
     if (!invoiceNo)    { App.toast('Invoice number is required', 'warning'); return; }
     if (!totalGst)     { App.toast('Enter the invoice total', 'warning'); return; }
 
-    const gst   = Math.round((totalGst / 11) * 100) / 100;
+    const manualGst = parseFloat(document.getElementById('inv-gst')?.value);
+    const gst   = isNaN(manualGst) ? Math.round((totalGst / 11) * 100) / 100 : manualGst;
     const exGst = Math.round((totalGst - gst) * 100) / 100;
 
     const btn = document.getElementById('save-invoice-btn');
@@ -173,7 +205,6 @@ const InvoiceModule = (() => {
       supplier,
       invoiceNo,
       invoiceDate: document.getElementById('inv-date')?.value,
-      dueDate:     document.getElementById('inv-due')?.value || null,
       totalIncGst: totalGst,
       gst,
       subtotal:    exGst,
@@ -187,12 +218,12 @@ const InvoiceModule = (() => {
       Store.saveInvoice({ ...invoiceData, xeroId: xeroBill?.id, status: 'synced' });
       App.toast(`${supplier} · $${exGst.toFixed(2)} ex GST sent to Xero`);
       resetForm();
-      loadTodayInvoices();
+      loadWeekInvoices();
     } catch (err) {
       Store.saveInvoice({ ...invoiceData, status: 'pending', error: err.message });
       App.toast('Saved locally — Xero sync failed', 'warning');
       resetForm();
-      loadTodayInvoices();
+      loadWeekInvoices();
     } finally {
       if (btn) {
         btn.disabled = false;
@@ -206,15 +237,35 @@ const InvoiceModule = (() => {
     renderForm();
   }
 
-  // ── Today's invoice list ──────────────────────
+  // ── Week invoice list ─────────────────────────
 
-  function loadTodayInvoices() {
-    const today = new Date().toLocaleDateString('sv-SE', { timeZone: 'Australia/Brisbane' });
+  function loadWeekInvoices() {
+    const weekEnd = Holidays.getWeekEnd(currentWeekStart);
+    const all = Store.getInvoices();
+    const invoices = all.filter(inv => inv.date >= currentWeekStart && inv.date <= weekEnd);
+
+    // GST summary
+    const gstSummary = document.getElementById('gst-summary');
+    if (gstSummary) {
+      if (!invoices.length) {
+        gstSummary.innerHTML = '<div class="empty-state">No invoices this week</div>';
+      } else {
+        const totalExGst = invoices.reduce((s, i) => s + (i.subtotal || 0), 0);
+        const totalGst   = invoices.reduce((s, i) => s + (i.gst || 0), 0);
+        const totalInc   = invoices.reduce((s, i) => s + (i.totalIncGst || 0), 0);
+        gstSummary.innerHTML = `
+          <div class="drawer-row"><span class="drawer-label">Total ex GST</span><span style="font-family:var(--mono);font-weight:600">$${totalExGst.toFixed(2)}</span></div>
+          <div class="drawer-row"><span class="drawer-label">Total GST</span><span style="font-family:var(--mono)">$${totalGst.toFixed(2)}</span></div>
+          <div class="cost-divider"></div>
+          <div class="drawer-row"><span class="drawer-label" style="font-weight:600">Total inc GST</span><span style="font-family:var(--mono);font-weight:600;color:var(--green-600)">$${totalInc.toFixed(2)}</span></div>
+        `;
+      }
+    }
+
     const list = document.getElementById('invoice-list');
-    const invoices = Store.getInvoices(today);
     if (!list) return;
     if (!invoices.length) {
-      list.innerHTML = '<div class="empty-state">No invoices entered today</div>';
+      list.innerHTML = '<div class="empty-state">No invoices this week</div>';
       return;
     }
     list.innerHTML = '<div class="card">' + invoices.map(inv => `
@@ -227,7 +278,7 @@ const InvoiceModule = (() => {
         </div>
         <div class="invoice-info">
           <div class="invoice-supplier">${escHtml(inv.supplier || '—')}</div>
-          <div class="invoice-meta">${inv.invoiceNo || '—'} · ex GST $${(inv.subtotal || 0).toFixed(2)}</div>
+          <div class="invoice-meta">${inv.date || '—'} · ${inv.invoiceNo || '—'} · ex GST $${(inv.subtotal || 0).toFixed(2)}</div>
         </div>
         <div class="invoice-right">
           <div class="invoice-amount">$${(inv.totalIncGst || inv.total || 0).toFixed(2)}</div>

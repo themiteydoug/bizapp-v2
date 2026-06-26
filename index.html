@@ -61,22 +61,47 @@
             <span class="status-time" id="last-sync-time">Syncing…</span>
           </div>
 
-          <!-- Today's hero metrics -->
+          <!-- Week selector -->
+          <div class="week-selector" id="dash-week-selector">
+            <button class="week-nav-btn" id="dash-prev-week" aria-label="Previous week">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="15 18 9 12 15 6"></polyline></svg>
+            </button>
+            <div class="week-info" id="dash-week-label">This week</div>
+            <button class="week-nav-btn" id="dash-next-week" aria-label="Next week">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="9 18 15 12 9 6"></polyline></svg>
+            </button>
+          </div>
+
+          <!-- Weekly hero metrics -->
           <div class="hero-metrics">
             <div class="hero-card">
-              <div class="hero-label">Today's takings</div>
+              <div class="hero-label">Weekly sales</div>
               <div class="hero-value" id="dash-takings">$0</div>
               <div class="hero-delta" id="dash-takings-delta">—</div>
             </div>
             <div class="hero-card">
-              <div class="hero-label">Staff hours</div>
-              <div class="hero-value" id="dash-hours">0h</div>
-              <div class="hero-delta" id="dash-hours-sub">— staff today</div>
+              <div class="hero-label">Total staff cost</div>
+              <div class="hero-value" id="dash-staff-cost">$—</div>
+              <div class="hero-delta" id="dash-staff-pct">— of sales</div>
+            </div>
+          </div>
+
+          <!-- Key % metrics -->
+          <div class="hero-metrics manager-only" style="margin-top:0">
+            <div class="hero-card" style="background:var(--blue-100)">
+              <div class="hero-label" style="color:var(--blue-800)">Labour vs Sales</div>
+              <div class="hero-value" id="dash-labour-pct" style="font-size:28px;color:var(--blue-800)">—%</div>
+              <div class="hero-delta" style="color:var(--blue-800)" id="dash-labour-amt">$—</div>
+            </div>
+            <div class="hero-card" style="background:var(--amber-100)">
+              <div class="hero-label" style="color:var(--amber-800)">COGS vs Sales</div>
+              <div class="hero-value" id="dash-cogs-pct" style="font-size:28px;color:var(--amber-800)">—%</div>
+              <div class="hero-delta" style="color:var(--amber-800)" id="dash-cogs-amt">$—</div>
             </div>
           </div>
 
           <!-- Cost breakdown (manager only) -->
-          <div class="section-label manager-only">Cost analysis · today</div>
+          <div class="section-label manager-only">Weekly cost analysis</div>
           <div class="card manager-only">
             <div class="cost-row">
               <div class="cost-info">
@@ -181,14 +206,16 @@
             <!-- Rendered by InvoiceModule -->
           </div>
 
-          <div class="section-label">GST summary · today</div>
+          <div id="invoice-week-nav"></div>
+
+          <div class="section-label">GST summary</div>
           <div class="card" id="gst-summary">
-            <div class="empty-state">No invoices today</div>
+            <div class="empty-state">No invoices this week</div>
           </div>
 
-          <div class="section-label">Today's entries</div>
+          <div class="section-label">This week's entries</div>
           <div id="invoice-list">
-            <div class="empty-state">No invoices entered today</div>
+            <div class="empty-state">No invoices this week</div>
           </div>
 
           <div class="section-label">Draft bills in Xero</div>

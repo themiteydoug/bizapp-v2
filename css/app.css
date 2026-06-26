@@ -935,40 +935,40 @@ select.field-input { appearance: none; background-image: url("data:image/svg+xml
   margin-bottom: 12px;
 }
 
-/* Denom grid — 2 col */
+/* Denom grid — single column list */
 .denom-grid {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
   margin-bottom: 10px;
 }
-.coins-grid { grid-template-columns: 1fr 1fr 1fr; }
+.coins-grid { }
 
-.denom-item { display: flex; flex-direction: column; gap: 4px; }
-.denom-label { font-size: 11px; font-weight: 600; color: var(--text-3); }
-.denom-row { display: flex; align-items: center; gap: 4px; }
+.denom-item { display: flex; flex-direction: column; gap: 0; }
+.denom-label { font-size: 13px; font-weight: 600; color: var(--text-2); min-width: 40px; }
+.denom-row { display: flex; align-items: center; gap: 8px; }
 .denom-input {
-  flex: 1;
-  min-width: 0;
-  height: 36px;
+  width: 72px;
+  flex: none;
+  height: 38px;
   border: 1px solid var(--border-md);
   border-radius: var(--r-sm);
-  padding: 0 6px;
+  padding: 0 8px;
   font-family: var(--mono);
-  font-size: 14px;
+  font-size: 15px;
   color: var(--text-1);
   background: var(--surface);
   text-align: center;
 }
 .denom-input:focus { outline: none; border-color: var(--green-400); }
 .denom-btn {
-  width: 28px;
-  height: 36px;
+  width: 34px;
+  height: 38px;
   border: 1px solid var(--border-md);
   border-radius: var(--r-sm);
   background: var(--surface-2);
   color: var(--text-2);
-  font-size: 16px;
+  font-size: 18px;
   cursor: pointer;
   display: flex;
   align-items: center;
@@ -977,12 +977,12 @@ select.field-input { appearance: none; background-image: url("data:image/svg+xml
 }
 .denom-btn:active { background: var(--border); }
 .denom-value {
-  font-size: 10px;
+  font-size: 13px;
   font-family: var(--mono);
   color: var(--green-600);
-  min-width: 36px;
+  min-width: 60px;
   text-align: right;
-  display: block;
+  margin-left: auto;
 }
 .denom-subtotal {
   font-size: 12px;

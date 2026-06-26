@@ -7,9 +7,11 @@
 const Dashboard = (() => {
 
   let refreshTimer = null;
+  let currentWeekStart = Holidays.getWeekStart();
 
   async function init() {
     setHeaderDate();
+    bindWeekNav();
     await refresh();
     refreshTimer = setInterval(refresh, 5 * 60 * 1000);
   }
@@ -23,30 +25,49 @@ const Dashboard = (() => {
     }
   }
 
+  function bindWeekNav() {
+    document.getElementById('dash-prev-week')?.addEventListener('click', () => {
+      const d = new Date(currentWeekStart + 'T12:00:00');
+      d.setDate(d.getDate() - 7);
+      currentWeekStart = d.toISOString().slice(0, 10);
+      updateWeekLabel();
+      refresh();
+    });
+    document.getElementById('dash-next-week')?.addEventListener('click', () => {
+      const d = new Date(currentWeekStart + 'T12:00:00');
+      d.setDate(d.getDate() + 7);
+      const next = d.toISOString().slice(0, 10);
+      const thisWeek = Holidays.getWeekStart();
+      if (next > thisWeek) return;
+      currentWeekStart = next;
+      updateWeekLabel();
+      refresh();
+    });
+    updateWeekLabel();
+  }
+
+  function updateWeekLabel() {
+    const el = document.getElementById('dash-week-label');
+    if (el) el.textContent = Holidays.formatWeekLabel(currentWeekStart);
+  }
+
   async function refresh() {
     const syncBtn = document.getElementById('sync-btn');
     if (syncBtn) syncBtn.classList.add('spinning');
 
-    const today = new Date().toLocaleDateString('sv-SE', { timeZone: 'Australia/Brisbane' });
+    const weekEnd = Holidays.getWeekEnd(currentWeekStart);
 
     try {
-      const takings = await SquareAPI.getTakings(today);
-      renderTakings(takings, today);
+      const [weekTotals, timesheets] = await Promise.all([
+        SquareAPI.getWeeklyTotals(currentWeekStart, weekEnd),
+        SquareAPI.getWeekTimesheets(currentWeekStart),
+      ]);
+
+      renderWeeklyHero(weekTotals, timesheets);
 
       if (Auth.isManager()) {
-        // Fetch timesheets for real labour hours — errors fall back to 0h
-        SquareAPI.getWeekTimesheets(Holidays.getWeekStart())
-          .then(timesheets => {
-            let todayHours = 0;
-            timesheets.forEach(emp => {
-              const s = emp.shifts.find(sh => sh.date === today);
-              if (s) todayHours += s.hours;
-            });
-            renderCosts(takings, todayHours, today);
-          })
-          .catch(() => renderCosts(takings, 0, today));
+        renderCosts(weekTotals, timesheets, currentWeekStart, weekEnd);
 
-        // Xero data — independent, errors don't block Square
         if (XeroAPI.isConnected()) {
           XeroAPI.getDraftBills()
             .then(bills => { if (bills) renderInvoicesDue(bills); })
@@ -68,35 +89,29 @@ const Dashboard = (() => {
     }
   }
 
-  function renderTakings(takings, today) {
+  function renderWeeklyHero(weekTotals, timesheets) {
     const fmt = n => '$' + Math.round(n).toLocaleString();
+    const revenue = weekTotals.total || 0;
 
-    const takingsEl = document.getElementById('dash-takings');
-    if (takingsEl) takingsEl.textContent = fmt(takings.total);
+    const BLENDED_RATE = 28;
+    const totalHours = timesheets.reduce((s, emp) => s + emp.totalHours, 0);
+    const staffCost  = Math.round(totalHours * BLENDED_RATE);
 
-    // Hide fake delta — remove or replace with real yesterday comparison later
-    const deltaEl = document.getElementById('dash-takings-delta');
-    if (deltaEl) deltaEl.textContent = '';
+    const set = (id, val) => { const el = document.getElementById(id); if (el) el.textContent = val; };
 
-    // Hours shown for all roles — pulled via shared timesheet fetch in refresh()
-    // rendered here with placeholder, updated once timesheets arrive
-    const hoursEl = document.getElementById('dash-hours');
-    const subEl   = document.getElementById('dash-hours-sub');
-    if (hoursEl && hoursEl.textContent === '0h') hoursEl.textContent = '—';
-    if (subEl   && subEl.textContent   === '— staff today') subEl.textContent = 'loading…';
+    set('dash-takings',      fmt(revenue));
+    set('dash-takings-delta', weekTotals.transactions ? weekTotals.transactions + ' transactions' : '');
+    set('dash-staff-cost',   staffCost > 0 ? fmt(staffCost) : '—');
+    set('dash-staff-pct',    revenue > 0 && staffCost > 0 ? (staffCost / revenue * 100).toFixed(1) + '% of sales' : timesheets.length + ' staff');
+    set('dash-labour-pct',   revenue > 0 && staffCost > 0 ? (staffCost / revenue * 100).toFixed(1) + '%' : '—%');
+    set('dash-labour-amt',   staffCost > 0 ? fmt(staffCost) : '$—');
 
-    SquareAPI.getWeekTimesheets(Holidays.getWeekStart()).then(ts => {
-      let todayHours = 0, staffCount = 0;
-      ts.forEach(emp => {
-        const todayShift = emp.shifts.find(s => s.date === today);
-        if (todayShift) { todayHours += todayShift.hours; staffCount++; }
-      });
-      if (hoursEl) hoursEl.textContent = todayHours > 0 ? todayHours.toFixed(1) + 'h' : '0h';
-      if (subEl)   subEl.textContent   = staffCount + ' staff today';
-    }).catch(() => {
-      if (hoursEl) hoursEl.textContent = '—';
-      if (subEl)   subEl.textContent   = 'Square error';
-    });
+    // COGS from week invoices
+    const weekEnd = Holidays.getWeekEnd(currentWeekStart);
+    const weekInvoices = Store.getInvoices().filter(inv => inv.date >= currentWeekStart && inv.date <= weekEnd);
+    const cogs = Math.round(weekInvoices.reduce((s, inv) => s + (inv.subtotal || 0), 0));
+    set('dash-cogs-pct', revenue > 0 && cogs > 0 ? (cogs / revenue * 100).toFixed(1) + '%' : '—%');
+    set('dash-cogs-amt', cogs > 0 ? fmt(cogs) : '$—');
   }
 
   /**
@@ -105,16 +120,15 @@ const Dashboard = (() => {
    *  COGS:   sum of today's scanned invoices from local store
    *  Overhead row removed from daily view — see 12-week Xero section below
    */
-  function renderCosts(takings, todayHours, today) {
-    const revenue = takings.total || 0;
+  function renderCosts(weekTotals, timesheets, weekStart, weekEnd) {
+    const revenue = weekTotals.total || 0;
 
-    // Labour from Square hours
-    const BLENDED_RATE = 28; // $/hr estimate — actual cost via Xero payroll
-    const labour = Math.round(todayHours * BLENDED_RATE);
+    const BLENDED_RATE = 28;
+    const totalHours = timesheets.reduce((s, emp) => s + emp.totalHours, 0);
+    const labour = Math.round(totalHours * BLENDED_RATE);
 
-    // COGS from today's scanned invoices
-    const todayInvoices = Store.getInvoices(today);
-    const cogs = Math.round(todayInvoices.reduce((sum, inv) => sum + (inv.subtotal || 0), 0));
+    const weekInvoices = Store.getInvoices().filter(inv => inv.date >= weekStart && inv.date <= weekEnd);
+    const cogs = Math.round(weekInvoices.reduce((sum, inv) => sum + (inv.subtotal || 0), 0));
 
     const net = revenue - labour - cogs;
 
@@ -122,11 +136,11 @@ const Dashboard = (() => {
     const pct = n => revenue > 0 ? (n / revenue * 100).toFixed(1) + '%' : '—';
     const set = (id, val) => { const el = document.getElementById(id); if (el) el.textContent = val; };
 
-    const labourSub = todayHours > 0
-      ? `${todayHours.toFixed(1)}h · est. $${BLENDED_RATE}/hr`
-      : 'No Square shifts today';
-    const cogsSub = todayInvoices.length > 0
-      ? `${todayInvoices.length} invoice${todayInvoices.length > 1 ? 's' : ''} today`
+    const labourSub = totalHours > 0
+      ? `${totalHours.toFixed(1)}h · est. $${BLENDED_RATE}/hr blended`
+      : 'No Square shifts this week';
+    const cogsSub = weekInvoices.length > 0
+      ? `${weekInvoices.length} invoice${weekInvoices.length > 1 ? 's' : ''} this week`
       : 'Scan invoices to track COGS';
 
     set('cost-labour',     fmt(labour));
@@ -135,18 +149,17 @@ const Dashboard = (() => {
     set('cost-cogs',       fmt(cogs));
     set('cost-cogs-pct',   pct(cogs));
     set('cost-cogs-sub',   cogsSub);
-    // Hide overhead row in daily view (shown in 12-week Xero section below)
-    const ohRow  = document.getElementById('cost-oh-row');
-    const ohBar  = document.getElementById('bar-oh-wrap');
+    const ohRow = document.getElementById('cost-oh-row');
+    const ohBar = document.getElementById('bar-oh-wrap');
     if (ohRow) ohRow.style.display = 'none';
     if (ohBar) ohBar.style.display = 'none';
-    set('cost-net',        fmt(net));
-    set('cost-net-pct',    pct(net));
+    set('cost-net',     fmt(net));
+    set('cost-net-pct', pct(net));
 
     setTimeout(() => {
-      const setBar = (id, pxVal) => {
+      const setBar = (id, val) => {
         const el = document.getElementById(id);
-        if (el) el.style.width = revenue > 0 ? Math.min(Math.max(pxVal, 0) / revenue * 100, 100) + '%' : '0%';
+        if (el) el.style.width = revenue > 0 ? Math.min(Math.max(val, 0) / revenue * 100, 100) + '%' : '0%';
       };
       setBar('bar-labour', labour);
       setBar('bar-cogs',   cogs);

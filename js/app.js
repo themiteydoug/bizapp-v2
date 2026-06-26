@@ -244,10 +244,6 @@ const App = (() => {
   // ── Boot ──────────────────────────────────────
 
   async function boot() {
-    // Check if we just returned from Xero OAuth redirect
-    XeroAPI.checkOAuthReturn();
-    XeroAPI.setupCallbackListener(); // no-op now, kept for safety
-
     await Auth.init();
 
     applyRoleUI();
@@ -263,6 +259,10 @@ const App = (() => {
     if (CONFIG.FEATURES.DEMO_MODE) {
       setTimeout(() => toast('Demo mode — add API credentials to go live', 'warning'), 1000);
     }
+
+    // Must run after everything is initialised so toast/settings/dashboard are ready.
+    // Also restores the PIN session if we just returned from a Xero OAuth redirect.
+    XeroAPI.checkOAuthReturn();
   }
 
   if (document.readyState === 'loading') {

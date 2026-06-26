@@ -37,6 +37,14 @@ module.exports = async (req, res) => {
   if (req.method === 'OPTIONS') return res.status(204).end();
   if (!['GET', 'POST'].includes(req.method)) return res.status(405).json({ error: 'Method not allowed' });
 
+  // Validate required env vars up-front for a clear error message
+  if (!process.env.SQUARE_ACCESS_TOKEN) {
+    return res.status(500).json({ error: 'SQUARE_ACCESS_TOKEN env var not set in Vercel' });
+  }
+  if (!process.env.SQUARE_LOCATION_ID) {
+    return res.status(500).json({ error: 'SQUARE_LOCATION_ID env var not set in Vercel' });
+  }
+
   // Parse the target endpoint from query string
   const endpoint = req.query.endpoint;
   if (!endpoint) return res.status(400).json({ error: 'Missing endpoint parameter' });
