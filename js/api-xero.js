@@ -159,6 +159,8 @@ const XeroAPI = (() => {
       if (window.App) {
         App.toast(`Xero connected${tenantName ? ' · ' + tenantName : ''}`, 'success');
         App.refreshSettings?.();
+        // Reload dashboard so Xero data appears immediately
+        setTimeout(() => { if (window.Dashboard) Dashboard.refresh(); }, 300);
       }
     });
   }

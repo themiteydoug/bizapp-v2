@@ -30,19 +30,25 @@ const Dashboard = (() => {
     const today = new Date().toLocaleDateString('sv-SE', { timeZone: 'Australia/Brisbane' });
 
     try {
-      const promises = [SquareAPI.getTakings(today)];
-
-      // Only fetch Xero bills for managers (avoids unnecessary API call for staff)
-      if (Auth.isManager()) promises.push(XeroAPI.getDraftBills());
-      else promises.push(Promise.resolve(null));
-
-      const [takings, bills] = await Promise.all(promises);
-
+      const takings = await SquareAPI.getTakings(today);
       renderTakings(takings);
+
       if (Auth.isManager()) {
         renderCosts(takings);
-        if (bills) renderInvoicesDue(bills);
-        loadOverhead();
+
+        // Xero data loaded independently — Xero errors don't block Square data
+        if (XeroAPI.isConnected()) {
+          XeroAPI.getDraftBills()
+            .then(bills => { if (bills) renderInvoicesDue(bills); })
+            .catch(e => {
+              console.warn('Xero bills error:', e.message);
+              // Only show toast if it's not a "not connected" message
+              if (!e.message.includes('session expired') && !e.message.includes('Not connected')) {
+                App.toast('Xero: ' + e.message, 'error');
+              }
+            });
+          loadOverhead();
+        }
       }
     } catch (e) {
       console.error('Dashboard refresh error:', e);

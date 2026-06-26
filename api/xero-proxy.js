@@ -54,6 +54,10 @@ module.exports = async (req, res) => {
   if (req.method === 'OPTIONS') return res.status(204).end();
   if (!['GET', 'POST', 'PUT'].includes(req.method)) return res.status(405).json({ error: 'Method not allowed' });
 
+  if (!process.env.XERO_TENANT_ID) {
+    return res.status(500).json({ error: 'XERO_TENANT_ID not set in Vercel environment variables' });
+  }
+
   const accessToken = req.headers['x-access-token'];
   if (!accessToken) return res.status(401).json({ error: 'Missing X-Access-Token header' });
 
