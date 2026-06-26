@@ -195,9 +195,11 @@ const SquareAPI = (() => {
 
   async function getStaffList() {
     if (CONFIG.FEATURES.DEMO_MODE) { await delay(400); return Store.getStaff(); }
-    // Square Team Plus (Legacy) uses /employees; newer plans use /team-members
-    const data = await proxyFetch('/employees');
-    return data.employees || [];
+    const data = await proxyFetch('/team-members/search', 'POST', {
+      query: { filter: { location_ids: [], statuses: ['ACTIVE'] } },
+      limit: 200,
+    });
+    return data.team_members || [];
   }
 
   // ── Drawer report ─────────────────────────────

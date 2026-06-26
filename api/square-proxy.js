@@ -97,6 +97,11 @@ module.exports = async (req, res) => {
       const filter = parsed.query?.filter;
       if (filter && (!filter.location_ids?.length)) filter.location_ids = [locationId];
     }
+    if (endpoint === '/team-members/search') {
+      if (!parsed.query) parsed.query = {};
+      if (!parsed.query.filter) parsed.query.filter = {};
+      if (!parsed.query.filter.location_ids?.length) parsed.query.filter.location_ids = [locationId];
+    }
     requestBody = JSON.stringify(parsed);
   } else if (req.body) {
     requestBody = typeof req.body === 'string' ? req.body : JSON.stringify(req.body);
