@@ -96,25 +96,20 @@ const SquareAPI = (() => {
   }
 
   async function fetchWeeklyCashFromDrawers(weekStart, weekEnd) {
-    // Fetch all shifts without date params (same approach as getDrawerReport)
-    // and filter client-side — avoids Square API quirks with begin_time/end_time
     const listData = await proxyFetch('/cash-drawers/shifts');
-    const shifts = (listData.cash_drawer_shifts || []).filter(s => {
+    const weekShifts = (listData.cash_drawer_shifts || []).filter(s => {
       if (!s.opened_at) return false;
-      const date = new Date(s.opened_at).toLocaleDateString('sv-SE', { timeZone: 'Australia/Brisbane' });
-      return date >= weekStart && date <= weekEnd;
+      const d = new Date(s.opened_at).toLocaleDateString('sv-SE', { timeZone: 'Australia/Brisbane' });
+      return d >= weekStart && d <= weekEnd;
     });
-    let cash = 0;
-    for (const s of shifts) {
-      if (s.cash_payment_money?.amount != null) {
-        cash += s.cash_payment_money.amount / 100;
-      } else {
-        // Open shift — cash_payment_money omitted from list; fetch full detail
-        const detail = await proxyFetch(`/cash-drawers/shifts/${s.id}`).catch(() => ({}));
-        cash += (detail.cash_drawer_shift?.cash_payment_money?.amount || 0) / 100;
-      }
-    }
-    return cash;
+    if (!weekShifts.length) return 0;
+    // cash_payment_money is never on the list object — always fetch detail in parallel
+    const details = await Promise.all(
+      weekShifts.map(s => proxyFetch(`/cash-drawers/shifts/${s.id}`).catch(() => ({})))
+    );
+    return details.reduce(
+      (sum, d) => sum + (d.cash_drawer_shift?.cash_payment_money?.amount || 0) / 100, 0
+    );
   }
 
   async function fetchTimesheetsReal(weekStart, weekEnd) {
