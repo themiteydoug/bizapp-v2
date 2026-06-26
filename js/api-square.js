@@ -245,8 +245,50 @@ const SquareAPI = (() => {
     return { startingCash, cashSales, cashRefunds, paidIn, paidOut, expected, expectedInDrawer: expected, paidInOutItems };
   }
 
+  // ── Payouts ───────────────────────────────────
+
+  async function getWeeklyPayouts(weekStart, weekEnd) {
+    if (CONFIG.FEATURES.DEMO_MODE) {
+      await delay(400);
+      return { cash: 1072.20, card: 5991.85, refunds: 0, entries: [] };
+    }
+    // Brisbane week boundaries converted to UTC ISO strings
+    const beginTime = weekStart + 'T00:00:00+10:00';
+    const endTime   = weekEnd   + 'T23:59:59+10:00';
+
+    const listData = await proxyFetch(
+      `/payouts?begin_time=${encodeURIComponent(beginTime)}&end_time=${encodeURIComponent(endTime)}&count=200`
+    );
+    const payouts = listData.payouts || [];
+    if (!payouts.length) return { cash: 0, card: 0, refunds: 0, entries: [] };
+
+    // Fetch entries for all payouts in parallel
+    const entryResults = await Promise.all(
+      payouts.map(p =>
+        proxyFetch(`/payouts/${p.id}/payout-entries?count=200`)
+          .then(d => d.payout_entries || [])
+          .catch(() => [])
+      )
+    );
+
+    const allEntries = entryResults.flat();
+
+    // Tally by type — Square entry types: CHARGE (card), REFUND, WITHDRAWAL (cash pickup)
+    let cash = 0, card = 0, refunds = 0;
+    allEntries.forEach(e => {
+      const amt = (e.amount_money?.amount || 0) / 100;
+      switch (e.type) {
+        case 'CHARGE':     card    += amt; break;
+        case 'WITHDRAWAL': cash    += amt; break;
+        case 'REFUND':     refunds += Math.abs(amt); break;
+      }
+    });
+
+    return { cash, card, refunds, payoutCount: payouts.length, entryCount: allEntries.length };
+  }
+
   function delay(ms) { return new Promise(r => setTimeout(r, ms)); }
 
-  return { getTakings, getWeekTimesheets, getWeeklyTotals, getStaffList, getDrawerReport };
+  return { getTakings, getWeekTimesheets, getWeeklyTotals, getWeeklyPayouts, getStaffList, getDrawerReport };
 
 })();

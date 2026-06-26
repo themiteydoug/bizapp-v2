@@ -22,6 +22,7 @@ const ALLOWED_ENDPOINTS = [
   '/team-members',
   '/cash-drawers/shifts',
   '/locations',
+  '/payouts',
 ];
 
 const ALLOWED_ORIGIN = process.env.APP_ORIGIN || 'https://bizapp-v2.vercel.app';
