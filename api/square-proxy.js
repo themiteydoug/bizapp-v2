@@ -126,13 +126,24 @@ module.exports = async (req, res) => {
       body: requestBody,
     });
 
-    const data = await response.json();
+    // Read as text first so a non-JSON upstream body doesn't throw and mask the real error
+    const rawText = await response.text();
+    let data;
+    try {
+      data = JSON.parse(rawText);
+    } catch {
+      // Upstream returned non-JSON (HTML error page, empty body, etc.)
+      return res.status(response.ok ? 502 : response.status).json({
+        error: 'Square returned non-JSON response',
+        _debug: { url, squareStatus: response.status, body: rawText.slice(0, 500) },
+      });
+    }
     // Attach debug info on errors so the client can see the exact Square response
     if (!response.ok) {
       return res.status(response.status).json({ ...data, _debug: { url, squareStatus: response.status } });
     }
     return res.status(response.status).json(data);
   } catch (err) {
-    return res.status(500).json({ error: 'Square API request failed', detail: err.message });
+    return res.status(500).json({ error: 'Square API request failed', detail: err.message, _debug: { url } });
   }
 };

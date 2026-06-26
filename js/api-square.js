@@ -15,7 +15,11 @@ const SquareAPI = (() => {
       headers: { 'Content-Type': 'application/json' },
       body: body ? JSON.stringify(body) : undefined,
     });
-    if (!res.ok) throw new Error(`Square proxy error: ${res.status}`);
+    if (!res.ok) {
+      const errText = await res.text().catch(() => '');
+      console.error(`[Square proxy] ${endpoint} → ${res.status}`, errText);
+      throw new Error(`Square proxy error: ${res.status} ${errText}`);
+    }
     return res.json();
   }
 
