@@ -200,7 +200,6 @@ const SquareAPI = (() => {
     if (CONFIG.FEATURES.DEMO_MODE) { await delay(400); return Store.getStaff(); }
     const data = await proxyFetch('/team-members/search', 'POST', {
       query: { filter: { location_ids: [], statuses: ['ACTIVE'] } },
-      fields: ['wage_setting'],
       limit: 200,
     });
     return data.team_members || [];
