@@ -100,6 +100,8 @@ const Dashboard = (() => {
 
     set('dash-takings',      fmt(revenue));
     set('dash-takings-delta', weekTotals.transactions ? weekTotals.transactions + ' transactions' : '');
+    const gst = weekTotals.gst || 0;
+    set('dash-gst', gst > 0 ? 'incl. $' + gst.toFixed(2) + ' GST' : '');
     set('dash-staff-cost',   staffCost > 0 ? fmt(staffCost) : '—');
     set('dash-staff-pct',    revenue > 0 && staffCost > 0 ? (staffCost / revenue * 100).toFixed(1) + '% of sales' : timesheets.length + ' staff');
     set('dash-labour-pct',   revenue > 0 && staffCost > 0 ? (staffCost / revenue * 100).toFixed(1) + '%' : '—%');

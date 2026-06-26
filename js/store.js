@@ -16,11 +16,17 @@ const Store = (() => {
 
   // ── Staff ──────────────────────────────────────
 
+  // Sort staff alphabetically by name (case-insensitive) for consistent display
+  function sortByName(list) {
+    return list.slice().sort((a, b) =>
+      (a.name || '').localeCompare(b.name || '', undefined, { sensitivity: 'base' }));
+  }
+
   function getStaff() {
     const saved = localStorage.getItem(KEYS.STAFF);
-    if (saved) return JSON.parse(saved);
+    if (saved) return sortByName(JSON.parse(saved));
     // Default demo staff
-    return [
+    return sortByName([
       {
         id: 'staff_1',
         squareId: 'sq_emp_1',
@@ -116,7 +122,7 @@ const Store = (() => {
         startDate: '2025-02-01',
         active: true,
       },
-    ];
+    ]);
   }
 
   function saveStaff(staff) {

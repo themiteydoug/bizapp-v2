@@ -85,11 +85,11 @@ const Holidays = (() => {
    * Given a week (Mon–Sun), return all public holidays in that range
    */
   function getHolidaysInWeek(weekStartDate) {
-    const start = new Date(weekStartDate + 'T12:00:00');
+    const start = new Date(weekStartDate + 'T12:00:00Z');
     const holidays = [];
     for (let i = 0; i < 7; i++) {
       const d = new Date(start);
-      d.setDate(d.getDate() + i);
+      d.setUTCDate(d.getUTCDate() + i);
       const ds = d.toISOString().slice(0, 10);
       const ph = isPublicHoliday(ds);
       if (ph) holidays.push({ date: ds, ...ph });
@@ -142,19 +142,25 @@ const Holidays = (() => {
    * Get Monday of the week containing a date
    */
   function getWeekStart(date = new Date()) {
-    const d = new Date(date);
-    const dow = d.getDay();
-    const diff = (dow === 0 ? -6 : 1 - dow); // Monday-based
-    d.setDate(d.getDate() + diff);
+    // Resolve the date as seen in Brisbane (UTC+10, Queensland has no daylight saving),
+    // then do whole-day arithmetic in UTC anchored at noon so toISOString() never
+    // slips to the previous/next calendar day.
+    const brisbane = typeof date === 'string'
+      ? date.slice(0, 10)
+      : new Date(date).toLocaleDateString('sv-SE', { timeZone: 'Australia/Brisbane' });
+    const d = new Date(brisbane + 'T12:00:00Z');
+    const dow = d.getUTCDay();                // 0=Sun … 6=Sat
+    const diff = (dow === 0 ? -6 : 1 - dow);  // Monday-based week start
+    d.setUTCDate(d.getUTCDate() + diff);
     return d.toISOString().slice(0, 10);
   }
 
   /**
-   * Get Sunday of the week containing a date
+   * Get Sunday of the week containing a date (Mon-start week → +6 days)
    */
   function getWeekEnd(weekStart) {
-    const d = new Date(weekStart + 'T12:00:00');
-    d.setDate(d.getDate() + 6);
+    const d = new Date(weekStart + 'T12:00:00Z');
+    d.setUTCDate(d.getUTCDate() + 6);
     return d.toISOString().slice(0, 10);
   }
 
@@ -162,11 +168,12 @@ const Holidays = (() => {
    * Format week range label: "Mon 26 May – Sun 1 Jun 2025"
    */
   function formatWeekLabel(weekStart) {
-    const start = new Date(weekStart + 'T12:00:00');
-    const end = new Date(weekStart + 'T12:00:00');
-    end.setDate(end.getDate() + 6);
-    const startLabel = start.toLocaleDateString('en-AU', { weekday: 'short', day: 'numeric', month: 'short' });
-    const endLabel = end.toLocaleDateString('en-AU', { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' });
+    const start = new Date(weekStart + 'T12:00:00Z');
+    const end = new Date(weekStart + 'T12:00:00Z');
+    end.setUTCDate(end.getUTCDate() + 6);
+    const opts = { weekday: 'short', day: 'numeric', month: 'short', timeZone: 'UTC' };
+    const startLabel = start.toLocaleDateString('en-AU', opts);
+    const endLabel = end.toLocaleDateString('en-AU', { ...opts, year: 'numeric' });
     return `${startLabel} – ${endLabel}`;
   }
 
