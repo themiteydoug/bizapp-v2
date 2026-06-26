@@ -260,7 +260,7 @@ const SquareAPI = (() => {
     const listData = await proxyFetch('/payouts', 'GET', null, {
       begin_time: beginTime,
       end_time:   endTime,
-      count:      200,
+      limit:      250,
     });
     const payouts = listData.payouts || [];
     if (!payouts.length) return { cash: 0, card: 0, refunds: 0, payoutCount: 0, entryCount: 0 };
@@ -268,7 +268,7 @@ const SquareAPI = (() => {
     // Fetch entries for all payouts in parallel
     const entryResults = await Promise.all(
       payouts.map(p =>
-        proxyFetch(`/payouts/${p.id}/payout-entries`, 'GET', null, { count: 200 })
+        proxyFetch(`/payouts/${p.id}/payout-entries`, 'GET', null, { limit: 250 })
           .then(d => d.payout_entries || [])
           .catch(() => [])
       )
