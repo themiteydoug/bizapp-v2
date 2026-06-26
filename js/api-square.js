@@ -94,9 +94,9 @@ const SquareAPI = (() => {
     });
     return {
       date: dateStr,
-      total: Math.round(total),
-      card: Math.round(card),
-      cash: Math.round(cash),
+      total,
+      card,
+      cash,
       transactions: orders.length,
     };
   }

@@ -134,19 +134,28 @@ const CashModule = (() => {
       <div class="denom-item">
         <div class="denom-label">${d.label}</div>
         <div class="denom-row">
-          <button class="denom-btn" onclick="CashModule.adjustDenom(this, ${d.value}, -1, '${type}')">−</button>
+          <button class="denom-btn" data-delta="-1" data-type="${type}">−</button>
           <input class="denom-input" type="number" min="0" step="1"
             data-value="${d.value}" data-type="${type}"
-            placeholder="0" inputmode="numeric" value="0"
-            oninput="CashModule.onDenomInput(this, '${type}')">
-          <button class="denom-btn" onclick="CashModule.adjustDenom(this, ${d.value}, 1, '${type}')">+</button>
+            placeholder="0" inputmode="numeric" value="0">
+          <button class="denom-btn" data-delta="1" data-type="${type}">+</button>
           <div class="denom-value" data-val="${d.value}" data-type="${type}">$0.00</div>
         </div>
       </div>
     `).join('');
+    grid.addEventListener('click', e => {
+      const btn = e.target.closest('.denom-btn[data-delta]');
+      if (!btn) return;
+      adjustDenom(btn, parseInt(btn.dataset.delta), btn.dataset.type);
+    });
+    grid.addEventListener('input', e => {
+      const input = e.target.closest('.denom-input');
+      if (!input) return;
+      onDenomInput(input, input.dataset.type);
+    });
   }
 
-  function adjustDenom(btn, val, delta, type) {
+  function adjustDenom(btn, delta, type) {
     const input = btn.closest('.denom-row').querySelector('.denom-input');
     input.value = Math.max(0, (parseInt(input.value) || 0) + delta);
     onDenomInput(input, type);
@@ -234,11 +243,11 @@ const CashModule = (() => {
     section.style.display = 'none';
     section.innerHTML = `
       <div class="week-selector" style="margin-bottom:14px">
-        <button class="week-nav-btn" onclick="CashModule.weeklyNav(-1)" aria-label="Previous week">
+        <button class="week-nav-btn" id="wk-prev-week" aria-label="Previous week">
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="15 18 9 12 15 6"></polyline></svg>
         </button>
         <div class="week-info" id="weekly-week-label">Loading…</div>
-        <button class="week-nav-btn" onclick="CashModule.weeklyNav(1)" aria-label="Next week">
+        <button class="week-nav-btn" id="wk-next-week" aria-label="Next week">
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="9 18 15 12 9 6"></polyline></svg>
         </button>
       </div>
@@ -270,8 +279,7 @@ const CashModule = (() => {
             <span style="color:var(--text-3);font-weight:600">$</span>
             <input id="wk-recount-input" type="number" min="0" step="0.01"
               inputmode="decimal" placeholder="0.00"
-              style="width:110px;text-align:right;font-size:15px;font-weight:600;padding:6px 8px;border:1.5px solid var(--border);border-radius:8px;background:var(--surface-2);color:var(--text-1)"
-              oninput="CashModule.onRecountInput()">
+              style="width:110px;text-align:right;font-size:15px;font-weight:600;padding:6px 8px;border:1.5px solid var(--border);border-radius:8px;background:var(--surface-2);color:var(--text-1)">
           </div>
         </div>
       </div>
@@ -305,6 +313,9 @@ const CashModule = (() => {
       <button class="primary-btn full-btn" id="save-weekly-btn">Save weekly banking rec</button>
     `;
 
+    section.querySelector('#wk-prev-week').addEventListener('click', () => weeklyNav(-1));
+    section.querySelector('#wk-next-week').addEventListener('click', () => weeklyNav(1));
+    section.querySelector('#wk-recount-input').addEventListener('input', onRecountInput);
     document.getElementById('save-weekly-btn')?.addEventListener('click', saveWeekly);
   }
 
@@ -448,6 +459,6 @@ const CashModule = (() => {
 
   function setEl(id, val) { const el = document.getElementById(id); if (el) el.textContent = val; }
 
-  return { init, switchTab, adjustDenom, onDenomInput, weeklyNav, onRecountInput };
+  return { init, switchTab };
 
 })();
