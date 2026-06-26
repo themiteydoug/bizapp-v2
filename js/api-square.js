@@ -105,11 +105,10 @@ const SquareAPI = (() => {
     return { date: dateStr, total, cash, card, transactions: orders.length };
   }
 
-  // Fetch weekly NET cash directly from the cash drawer shifts API.
-  // This is more reliable than deducting refunds from orders because Square's
-  // v2 Orders search does not always embed the refunds[] array.
+  // Fetch weekly cash figures from cash drawer shifts.
+  // Returns { cash: gross_cash_payments, refunds: cash_refunds } so the UI
+  // can display gross → deduction → net without extra API calls.
   async function fetchWeeklyCashFromDrawers(weekStart, weekEnd) {
-    // Pass date range server-side so Square filters for us (avoids timezone edge cases)
     const listData = await proxyFetch('/cash-drawers/shifts', 'GET', null, {
       begin_time: weekStart + 'T00:00:00+10:00',
       end_time:   weekEnd   + 'T23:59:59+10:00',
@@ -117,19 +116,21 @@ const SquareAPI = (() => {
     });
     const shifts = listData.cash_drawer_shifts || [];
     console.log(`[Square drawers] ${weekStart}–${weekEnd}: ${shifts.length} shift(s)`, shifts.map(s => ({ id: s.id?.slice(-8), state: s.state, opened: s.opened_at?.slice(0, 10) })));
-    if (!shifts.length) return 0;
+    if (!shifts.length) return { cash: 0, refunds: 0 };
     const details = await Promise.all(
       shifts.map(s => proxyFetch(`/cash-drawers/shifts/${s.id}`).catch(() => null))
     );
-    let drawerTotal = 0;
+    let cash = 0, refunds = 0;
     details.forEach((d, i) => {
       const shift = d?.cash_drawer_shift;
-      const amt = (shift?.cash_payment_money?.amount || 0) / 100;
-      console.log(`[Square drawers] shift ${shifts[i].id?.slice(-8)}: state=${shift?.state} cash_payment_money=${amt}`);
-      drawerTotal += amt;
+      const cashAmt    = (shift?.cash_payment_money?.amount || 0) / 100;
+      const refundAmt  = (shift?.cash_refunds_money?.amount  || 0) / 100;
+      console.log(`[Square drawers] shift ${shifts[i].id?.slice(-8)}: state=${shift?.state} cash=${cashAmt} refunds=${refundAmt}`);
+      cash    += cashAmt;
+      refunds += refundAmt;
     });
-    console.log('[Square drawers] weekly NET cash:', drawerTotal.toFixed(2));
-    return drawerTotal;
+    console.log('[Square drawers] weekly totals: cash=', cash.toFixed(2), 'refunds=', refunds.toFixed(2));
+    return { cash, refunds };
   }
 
   async function fetchTimesheetsReal(weekStart, weekEnd) {
@@ -218,9 +219,9 @@ const SquareAPI = (() => {
     for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
       days.push(d.toISOString().slice(0, 10));
     }
-    const [orderResults, drawerCash] = await Promise.all([
+    const [orderResults, drawerData] = await Promise.all([
       Promise.all(days.map(ds => fetchTakingsReal(ds).catch(() => ({ total: 0, cash: 0, card: 0 })))),
-      fetchWeeklyCashFromDrawers(weekStart, weekEnd).catch(() => 0),
+      fetchWeeklyCashFromDrawers(weekStart, weekEnd).catch(() => ({ cash: 0, refunds: 0 })),
     ]);
     const { total, orderCash, cardSales } = orderResults.reduce(
       (acc, r) => ({
@@ -230,11 +231,13 @@ const SquareAPI = (() => {
       }),
       { total: 0, orderCash: 0, cardSales: 0 }
     );
-    // Drawer gives NET cash (refunds already deducted by Square).
-    // Fall back to order-based cash if drawer returns 0 (open shifts or API issue).
-    const cashSales = drawerCash > 0 ? drawerCash : orderCash;
-    console.log('[Square weekly] drawerCash:', drawerCash.toFixed(2), '| orderCash:', orderCash.toFixed(2), '| using:', cashSales.toFixed(2));
-    return { cashSales, cardSales, total, refunds: 0, paidIn: 0, paidOut: 0 };
+    // Drawer gives gross cash + refunds separately, so the UI can show the breakdown.
+    // Fall back to order-based gross cash (no refund line) if drawer returns nothing.
+    const cashGross   = drawerData.cash > 0 ? drawerData.cash   : orderCash;
+    const cashRefunds = drawerData.cash > 0 ? drawerData.refunds : 0;
+    const cashSales   = cashGross - cashRefunds;
+    console.log('[Square weekly] drawer:', drawerData.cash.toFixed(2), '| order:', orderCash.toFixed(2), '| gross:', cashGross.toFixed(2), '| refunds:', cashRefunds.toFixed(2), '| net:', cashSales.toFixed(2));
+    return { cashGross, cashRefunds, cashSales, cardSales, total, paidIn: 0, paidOut: 0 };
   }
 
   async function getStaffList() {

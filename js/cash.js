@@ -262,7 +262,16 @@ const CashModule = (() => {
       <div class="section-label">Square cash report</div>
       <div class="card">
         <div class="drawer-row">
-          <span class="drawer-label">Cash sales (inc GST)</span>
+          <span class="drawer-label">Cash sales (gross)</span>
+          <span class="drawer-val" id="wk-sq-cash-gross">$—</span>
+        </div>
+        <div class="drawer-row" id="wk-sq-refunds-row" style="display:none">
+          <span class="drawer-label">Cash refunds</span>
+          <span class="drawer-val" id="wk-sq-cash-refunds" style="color:#e53935">$—</span>
+        </div>
+        <div class="cost-divider" id="wk-sq-net-divider" style="display:none"></div>
+        <div class="drawer-row">
+          <span class="drawer-label" id="wk-sq-net-label">Net cash</span>
           <span class="drawer-val" id="wk-sq-cash" style="font-weight:600;color:var(--green-600)">$—</span>
         </div>
       </div>
@@ -329,10 +338,29 @@ const CashModule = (() => {
 
     try {
       const totals = await SquareAPI.getWeeklyTotals(weeklyWeekStart, weekEnd);
-      const cash = totals.cashSales;
-      setEl('wk-sq-cash',        '$' + cash.toFixed(2));
-      setEl('wk-sq-cash-mirror', '$' + cash.toFixed(2));
-      recalcWeeklyVariance(weekRecs, cash);
+      const cashGross   = totals.cashGross   || totals.cashSales || 0;
+      const cashRefunds = totals.cashRefunds || 0;
+      const cashNet     = totals.cashSales   || 0;
+
+      setEl('wk-sq-cash-gross', '$' + cashGross.toFixed(2));
+
+      const refundsRow    = document.getElementById('wk-sq-refunds-row');
+      const netDivider    = document.getElementById('wk-sq-net-divider');
+      const netLabel      = document.getElementById('wk-sq-net-label');
+      if (cashRefunds > 0) {
+        setEl('wk-sq-cash-refunds', '−$' + cashRefunds.toFixed(2));
+        if (refundsRow)  refundsRow.style.display  = '';
+        if (netDivider)  netDivider.style.display  = '';
+        if (netLabel)    netLabel.textContent = 'Net cash';
+      } else {
+        if (refundsRow)  refundsRow.style.display  = 'none';
+        if (netDivider)  netDivider.style.display  = 'none';
+        if (netLabel)    netLabel.textContent = 'Net cash';
+      }
+
+      setEl('wk-sq-cash',        '$' + cashNet.toFixed(2));
+      setEl('wk-sq-cash-mirror', '$' + cashNet.toFixed(2));
+      recalcWeeklyVariance(weekRecs, cashNet);
     } catch(e) {
       console.error('Weekly totals error:', e);
     }
