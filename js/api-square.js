@@ -103,37 +103,6 @@ const SquareAPI = (() => {
     return { date: dateStr, total, cash, card, transactions: orders.length };
   }
 
-  // Fetch weekly cash figures from cash drawer shifts.
-  // Returns { cash: gross_cash_payments, refunds: cash_refunds } so the UI
-  // can display gross → deduction → net without extra API calls.
-  async function fetchWeeklyCashFromDrawers(weekStart, weekEnd) {
-    // No date filter on the list call — same pattern as getDrawerReport which works.
-    // Server-side begin_time/end_time filtering caused empty results (encoding issue).
-    const listData = await proxyFetch('/cash-drawers/shifts');
-    const allShifts = listData.cash_drawer_shifts || [];
-    const shifts = allShifts.filter(s => {
-      if (!s.opened_at) return false;
-      const d = new Date(s.opened_at).toLocaleDateString('sv-SE', { timeZone: 'Australia/Brisbane' });
-      return d >= weekStart && d <= weekEnd;
-    });
-    console.log(`[Square drawers] ${weekStart}–${weekEnd}: ${shifts.length}/${allShifts.length} shift(s)`, shifts.map(s => ({ id: s.id?.slice(-8), state: s.state, opened: s.opened_at?.slice(0, 10) })));
-    if (!shifts.length) return { cash: 0, refunds: 0 };
-    const details = await Promise.all(
-      shifts.map(s => proxyFetch(`/cash-drawers/shifts/${s.id}`).catch(() => null))
-    );
-    let cash = 0, refunds = 0;
-    details.forEach((d, i) => {
-      const shift = d?.cash_drawer_shift;
-      const cashAmt    = (shift?.cash_payment_money?.amount || 0) / 100;
-      const refundAmt  = (shift?.cash_refunds_money?.amount  || 0) / 100;
-      console.log(`[Square drawers] shift ${shifts[i].id?.slice(-8)}: state=${shift?.state} cash=${cashAmt} refunds=${refundAmt}`);
-      cash    += cashAmt;
-      refunds += refundAmt;
-    });
-    console.log('[Square drawers] weekly totals: cash=', cash.toFixed(2), 'refunds=', refunds.toFixed(2));
-    return { cash, refunds };
-  }
-
   // Fetch cash refunds for the week from Square's /v2/refunds endpoint.
   // PaymentRefund.destination_type === 'CASH' identifies cash-back refunds directly.
   async function fetchWeeklyRefunds(weekStart, weekEnd) {
