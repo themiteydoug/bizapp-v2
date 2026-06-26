@@ -129,13 +129,37 @@ const XeroAPI = (() => {
 
       const authUrl = `https://login.xero.com/identity/connect/authorize?${params}`;
 
-      // Open popup — callback will postMessage back to this window
+      // Open popup — callback will write tokens to localStorage
       const popup = window.open(authUrl, 'xero-auth',
         'width=520,height=680,left=200,top=100,scrollbars=yes');
 
       if (!popup) {
         throw new Error('Popup blocked — please allow popups for this site and try again');
       }
+
+      // Poll localStorage every 500ms for the token written by xero-callback.html.
+      // Storage events are unreliable when Xero's COOP headers break the browsing
+      // context group, so polling is the authoritative mechanism here.
+      const pollTimer = setInterval(() => {
+        try {
+          const pending = localStorage.getItem('bizops_xero_pending');
+          if (pending) {
+            clearInterval(pollTimer);
+            const payload = JSON.parse(pending);
+            if (payload?.type === 'XERO_AUTH_SUCCESS') {
+              localStorage.removeItem('bizops_xero_pending');
+              handleXeroTokenPayload(payload);
+            }
+            return;
+          }
+        } catch (_) {}
+        // Stop polling once the popup closes (user cancelled or flow complete)
+        if (popup.closed) clearInterval(pollTimer);
+      }, 500);
+
+      // Hard stop after 10 minutes
+      setTimeout(() => clearInterval(pollTimer), 10 * 60 * 1000);
+
     } catch (e) {
       if (window.App) App.toast('Xero: ' + e.message, 'error');
       else alert('Xero: ' + e.message);
