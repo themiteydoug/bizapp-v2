@@ -265,11 +265,11 @@ const CashModule = (() => {
           <span class="drawer-label">Cash sales (gross)</span>
           <span class="drawer-val" id="wk-sq-cash-gross">$—</span>
         </div>
-        <div class="drawer-row" id="wk-sq-refunds-row" style="display:none">
+        <div class="drawer-row" id="wk-sq-refunds-row">
           <span class="drawer-label">Cash refunds</span>
           <span class="drawer-val" id="wk-sq-cash-refunds" style="color:#e53935">$—</span>
         </div>
-        <div class="cost-divider" id="wk-sq-net-divider" style="display:none"></div>
+        <div class="cost-divider" id="wk-sq-net-divider"></div>
         <div class="drawer-row">
           <span class="drawer-label" id="wk-sq-net-label">Net cash</span>
           <span class="drawer-val" id="wk-sq-cash" style="font-weight:600;color:var(--green-600)">$—</span>
@@ -344,19 +344,7 @@ const CashModule = (() => {
 
       setEl('wk-sq-cash-gross', '$' + cashGross.toFixed(2));
 
-      const refundsRow    = document.getElementById('wk-sq-refunds-row');
-      const netDivider    = document.getElementById('wk-sq-net-divider');
-      const netLabel      = document.getElementById('wk-sq-net-label');
-      if (cashRefunds > 0) {
-        setEl('wk-sq-cash-refunds', '−$' + cashRefunds.toFixed(2));
-        if (refundsRow)  refundsRow.style.display  = '';
-        if (netDivider)  netDivider.style.display  = '';
-        if (netLabel)    netLabel.textContent = 'Net cash';
-      } else {
-        if (refundsRow)  refundsRow.style.display  = 'none';
-        if (netDivider)  netDivider.style.display  = 'none';
-        if (netLabel)    netLabel.textContent = 'Net cash';
-      }
+      setEl('wk-sq-cash-refunds', cashRefunds > 0 ? '−$' + cashRefunds.toFixed(2) : '$0.00');
 
       setEl('wk-sq-cash',        '$' + cashNet.toFixed(2));
       setEl('wk-sq-cash-mirror', '$' + cashNet.toFixed(2));
