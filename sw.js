@@ -1,9 +1,13 @@
 /**
- * BizOps Service Worker v5
+ * BizOps Service Worker v6
  * Caches ONLY static assets — never API responses or financial data (FIND-004)
+ *
+ * Strategy: NETWORK-FIRST for the app shell so code/UI updates apply on the next
+ * load when online; falls back to cache only when the network is unavailable.
+ * (v5 was cache-first, which pinned stale JS until the cache name was bumped.)
  */
 
-const CACHE = 'bizops-v5';
+const CACHE = 'bizops-v6';
 
 // Only static shell files — NO API endpoints
 const STATIC_SHELL = [
@@ -51,28 +55,33 @@ self.addEventListener('activate', e => {
 });
 
 self.addEventListener('fetch', e => {
-  const url = e.request.url;
+  const req = e.request;
+  const url = new URL(req.url);
 
-  // Never cache API calls or financial data
-  const isApiCall = NEVER_CACHE.some(nc => url.includes(nc));
-  if (isApiCall) {
-    e.respondWith(fetch(e.request));
+  // Only handle same-origin GET requests. Letting cross-origin assets (Google
+  // Fonts) and non-http schemes (chrome-extension) pass straight through avoids
+  // turning a <link> load into a CSP-blocked connect-src fetch, and avoids
+  // cache.put() throwing on unsupported schemes.
+  if (req.method !== 'GET' || url.origin !== self.location.origin) return;
+
+  // Never cache API calls or financial data — always hit the network live
+  if (NEVER_CACHE.some(nc => req.url.includes(nc))) {
+    e.respondWith(fetch(req));
     return;
   }
 
-  // Cache-first for static shell only
+  // Network-first for the app shell: fetch fresh, cache the result, and only
+  // fall back to the cached copy when offline.
   e.respondWith(
-    caches.match(e.request).then(cached => {
-      if (cached) return cached;
-      return fetch(e.request).then(response => {
-        // Only cache successful static responses
+    fetch(req)
+      .then(response => {
         if (response.ok && response.type === 'basic') {
           const clone = response.clone();
-          caches.open(CACHE).then(c => c.put(e.request, clone));
+          caches.open(CACHE).then(c => c.put(req, clone));
         }
         return response;
-      });
-    })
+      })
+      .catch(() => caches.match(req))
   );
 });
 
