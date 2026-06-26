@@ -135,7 +135,13 @@ const SquareAPI = (() => {
 
   // ── Public API ────────────────────────────────
 
-  async function getTakings(dateStr = new Date().toISOString().slice(0, 10)) {
+  // Returns today's date in Brisbane time (AEST/AEDT = UTC+10/+11)
+  // Using toISOString() returns UTC which can be yesterday in QLD until 10am
+  function getTodayBrisbane() {
+    return new Date().toLocaleDateString('sv-SE', { timeZone: 'Australia/Brisbane' });
+  }
+
+  async function getTakings(dateStr = getTodayBrisbane()) {
     if (CONFIG.FEATURES.DEMO_MODE) { await delay(600); return demoTakings(dateStr); }
     return fetchTakingsReal(dateStr);
   }
@@ -154,7 +160,7 @@ const SquareAPI = (() => {
 
   // ── Drawer report ─────────────────────────────
 
-  async function getDrawerReport(dateStr = new Date().toISOString().slice(0,10)) {
+  async function getDrawerReport(dateStr = getTodayBrisbane()) {
     if (CONFIG.FEATURES.DEMO_MODE) {
       await delay(600);
       return {

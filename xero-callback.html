@@ -44,8 +44,8 @@
       if (!code)  { showError('No authorisation code received. Please try again.'); return; }
 
       try {
-        // Exchange code for tokens via Netlify Function (client_secret stays server-side)
-        const res = await fetch('/.netlify/functions/xero-auth', {
+        // Exchange code for tokens via Vercel Function (client_secret stays server-side)
+        const res = await fetch('/api/xero-auth', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ action: 'exchange', code }),
@@ -88,7 +88,7 @@
 
         let detail = `Connected to <strong>${data.tenantName || 'your organisation'}</strong>.`;
         if (data.tenantId) {
-          detail += `<br><br>Tenant ID (copy into Netlify env var XERO_TENANT_ID):<br><code>${data.tenantId}</code>`;
+          detail += `<br><br>Tenant ID (copy into Vercel env var XERO_TENANT_ID):<br><code>${data.tenantId}</code>`;
         }
         if (!sent) {
           detail += `<br><br><em>If the main app didn't update, close this window and refresh the app.</em>`;
