@@ -103,40 +103,56 @@ const SquareAPI = (() => {
   }
 
   async function fetchTimesheetsReal(weekStart, weekEnd) {
-    // Team Plus Legacy uses /labor/timecards (not /labor/shifts)
-    const data = await proxyFetch('/labor/timecards', 'GET', null, {
-      clockin_time_min: weekStart + 'T00:00:00+10:00',
-      clockin_time_max: weekEnd   + 'T23:59:59+10:00',
+    // Square Team Plus Legacy: POST /labor/timecards/search
+    const locationId = ''; // injected server-side from SQUARE_LOCATION_ID
+    const data = await proxyFetch('/labor/timecards/search', 'POST', {
+      query: {
+        filter: {
+          location_ids: [], // proxy injects location_id via env var — pass empty so proxy adds it
+          start: { start_at: weekStart + 'T00:00:00+10:00', end_at: weekEnd + 'T23:59:59+10:00' },
+        },
+      },
       limit: 200,
     });
     const timecards = (data.timecards || []).filter(t => !t.deleted);
     const byEmployee = {};
     timecards.forEach(tc => {
-      const eid = tc.employee_id;
+      const eid = tc.team_member_id;
       if (!eid) return;
-      if (!byEmployee[eid]) byEmployee[eid] = [];
-      const startMs = new Date(tc.clockin_time).getTime();
-      const endMs   = tc.clockout_time ? new Date(tc.clockout_time).getTime() : startMs;
-      // Legacy API provides regular_seconds_worked if available, otherwise calculate
-      const hours = tc.regular_seconds_worked
-        ? Math.round((tc.regular_seconds_worked / 3600) * 100) / 100
-        : Math.round(((endMs - startMs) / 3600000) * 100) / 100;
-      const date = new Date(tc.clockin_time).toLocaleDateString('sv-SE', { timeZone: 'Australia/Brisbane' });
-      byEmployee[eid].push({ date, hours, startTime: tc.clockin_time, endTime: tc.clockout_time });
+      if (!byEmployee[eid]) byEmployee[eid] = { shifts: [], hourlyRate: 0 };
+      const startMs = new Date(tc.start_at).getTime();
+      const endMs   = tc.end_at ? new Date(tc.end_at).getTime() : Date.now();
+      const rawHours = (endMs - startMs) / 3600000;
+      const breakMins = (tc.breaks || []).filter(b => !b.is_paid).reduce((a, b) => {
+        if (b.start_at && b.end_at) return a + (new Date(b.end_at) - new Date(b.start_at)) / 60000;
+        return a;
+      }, 0);
+      const hours = Math.round((rawHours - breakMins / 60) * 100) / 100;
+      const date = new Date(tc.start_at).toLocaleDateString('sv-SE', { timeZone: 'Australia/Brisbane' });
+      const hourlyRate = (tc.wage?.hourly_rate?.amount || 0) / 100;
+      byEmployee[eid].shifts.push({ date, hours, startTime: tc.start_at, endTime: tc.end_at });
+      if (hourlyRate) byEmployee[eid].hourlyRate = hourlyRate;
     });
 
     const staff = Store.getStaff().filter(s => s.active);
-    // If no staff in local store, return all employees found in shifts
     if (!staff.length) {
-      return Object.entries(byEmployee).map(([eid, empShifts]) => ({
-        staffId: eid, squareId: eid, name: eid, shifts: empShifts,
-        totalHours: empShifts.reduce((a, sh) => a + sh.hours, 0),
+      return Object.entries(byEmployee).map(([eid, emp]) => ({
+        staffId: eid, squareId: eid, name: eid,
+        shifts: emp.shifts,
+        totalHours: emp.shifts.reduce((a, sh) => a + sh.hours, 0),
+        hourlyRate: emp.hourlyRate,
+        estimatedCost: Math.round(emp.shifts.reduce((a, sh) => a + sh.hours, 0) * emp.hourlyRate),
       }));
     }
     return staff.map(s => {
-      const empShifts = byEmployee[s.squareId] || [];
-      const totalHours = empShifts.reduce((a, sh) => a + sh.hours, 0);
-      return { staffId: s.id, squareId: s.squareId, name: s.name, shifts: empShifts, totalHours };
+      const emp = byEmployee[s.squareId] || { shifts: [], hourlyRate: 0 };
+      const totalHours = emp.shifts.reduce((a, sh) => a + sh.hours, 0);
+      const hourlyRate = emp.hourlyRate || 0;
+      return {
+        staffId: s.id, squareId: s.squareId, name: s.name,
+        shifts: emp.shifts, totalHours, hourlyRate,
+        estimatedCost: Math.round(totalHours * hourlyRate),
+      };
     }).filter(s => s.shifts.length > 0);
   }
 

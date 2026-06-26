@@ -86,13 +86,16 @@ module.exports = async (req, res) => {
 
   const url = `${SQUARE_BASE}${targetEndpoint}${queryString}`;
 
-  // For orders/search POST: inject location_ids into body if missing
-  // req.body is pre-parsed by Vercel for application/json requests
+  // For POST endpoints: inject location_id(s) into body server-side
   let requestBody;
-  if (endpoint === '/orders/search' && req.method === 'POST' && req.body) {
+  if (req.method === 'POST' && req.body) {
     const parsed = typeof req.body === 'string' ? JSON.parse(req.body) : req.body;
-    if (!parsed.location_ids?.length) {
-      parsed.location_ids = [process.env.SQUARE_LOCATION_ID];
+    if (endpoint === '/orders/search') {
+      if (!parsed.location_ids?.length) parsed.location_ids = [locationId];
+    }
+    if (endpoint === '/labor/timecards/search') {
+      const filter = parsed.query?.filter;
+      if (filter && (!filter.location_ids?.length)) filter.location_ids = [locationId];
     }
     requestBody = JSON.stringify(parsed);
   } else if (req.body) {

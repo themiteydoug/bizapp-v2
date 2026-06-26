@@ -93,9 +93,8 @@ const Dashboard = (() => {
     const fmt = n => '$' + Math.round(n).toLocaleString();
     const revenue = weekTotals.total || 0;
 
-    const BLENDED_RATE = 28;
     const totalHours = timesheets.reduce((s, emp) => s + emp.totalHours, 0);
-    const staffCost  = Math.round(totalHours * BLENDED_RATE);
+    const staffCost  = timesheets.reduce((s, emp) => s + (emp.estimatedCost || 0), 0);
 
     const set = (id, val) => { const el = document.getElementById(id); if (el) el.textContent = val; };
 
@@ -123,9 +122,8 @@ const Dashboard = (() => {
   function renderCosts(weekTotals, timesheets, weekStart, weekEnd) {
     const revenue = weekTotals.total || 0;
 
-    const BLENDED_RATE = 28;
     const totalHours = timesheets.reduce((s, emp) => s + emp.totalHours, 0);
-    const labour = Math.round(totalHours * BLENDED_RATE);
+    const labour = timesheets.reduce((s, emp) => s + (emp.estimatedCost || 0), 0);
 
     const weekInvoices = Store.getInvoices().filter(inv => inv.date >= weekStart && inv.date <= weekEnd);
     const cogs = Math.round(weekInvoices.reduce((sum, inv) => sum + (inv.subtotal || 0), 0));
@@ -137,8 +135,8 @@ const Dashboard = (() => {
     const set = (id, val) => { const el = document.getElementById(id); if (el) el.textContent = val; };
 
     const labourSub = totalHours > 0
-      ? `${totalHours.toFixed(1)}h · est. $${BLENDED_RATE}/hr blended`
-      : 'No Square shifts this week';
+      ? `${totalHours.toFixed(1)}h · actual Square rates`
+      : 'No Square timecards this week';
     const cogsSub = weekInvoices.length > 0
       ? `${weekInvoices.length} invoice${weekInvoices.length > 1 ? 's' : ''} this week`
       : 'Scan invoices to track COGS';
