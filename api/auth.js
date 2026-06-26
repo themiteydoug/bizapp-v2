@@ -61,7 +61,7 @@ module.exports = async (req, res) => {
     const expiry = Date.now() + 12 * 60 * 60 * 1000; // 12 hours
     validTokens.set(sessionToken, { role, expiry });
 
-    return res.status(200).json({ token: sessionToken, expiry, role });
+    return res.status(200).json({ token: sessionToken, expiry, role, managerConfigured: !!managerPin });
   }
 
   // ── Verify ─────────────────────────────────────

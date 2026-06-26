@@ -328,23 +328,13 @@ const CashModule = (() => {
     renderWeeklyBreakdown(weekRecs, weeklyWeekStart, weekEnd);
 
     try {
-      const payouts = await SquareAPI.getWeeklyPayouts(weeklyWeekStart, weekEnd);
-      const cash = payouts.cash;
+      const totals = await SquareAPI.getWeeklyTotals(weeklyWeekStart, weekEnd);
+      const cash = totals.cashSales;
       setEl('wk-sq-cash',        '$' + cash.toFixed(2));
       setEl('wk-sq-cash-mirror', '$' + cash.toFixed(2));
       recalcWeeklyVariance(weekRecs, cash);
     } catch(e) {
-      console.error('Weekly payouts error:', e);
-      // Fall back to orders-based totals
-      try {
-        const totals = await SquareAPI.getWeeklyTotals(weeklyWeekStart, weekEnd);
-        const cash = totals.cashSales;
-        setEl('wk-sq-cash',        '$' + cash.toFixed(2));
-        setEl('wk-sq-cash-mirror', '$' + cash.toFixed(2));
-        recalcWeeklyVariance(weekRecs, cash);
-      } catch(e2) {
-        console.error('Weekly totals fallback error:', e2);
-      }
+      console.error('Weekly totals error:', e);
     }
   }
 

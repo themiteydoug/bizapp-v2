@@ -96,10 +96,9 @@ const SquareAPI = (() => {
         else card += (t.amount_money?.amount || 0) / 100;
       });
 
-      // Subtract refunds — Square attaches them to the original order, not as negative tenders
+      // Subtract refunds from cash/card buckets — o.total_money is already gross so leave total alone
       (o.refunds || []).forEach(r => {
         const amt = (r.amount_money?.amount || 0) / 100;
-        total -= amt;
         if (tenderType[r.tender_id] === 'CASH') cash -= amt;
         else card -= amt;
       });
