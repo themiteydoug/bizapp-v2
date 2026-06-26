@@ -103,35 +103,26 @@ const SquareAPI = (() => {
   }
 
   async function fetchTimesheetsReal(weekStart, weekEnd) {
-    // Square API uses start_at_min / start_at_max for date range filtering on GET /labor/shifts
-    // location_id is injected server-side by square-proxy
-    const data = await proxyFetch('/labor/shifts', 'GET', null, {
-      start_at_min: weekStart + 'T00:00:00+10:00',
-      start_at_max: weekEnd   + 'T23:59:59+10:00',
+    // Team Plus Legacy uses /labor/timecards (not /labor/shifts)
+    const data = await proxyFetch('/labor/timecards', 'GET', null, {
+      clockin_time_min: weekStart + 'T00:00:00+10:00',
+      clockin_time_max: weekEnd   + 'T23:59:59+10:00',
       limit: 200,
     });
-    const shifts = data.shifts || [];
+    const timecards = (data.timecards || []).filter(t => !t.deleted);
     const byEmployee = {};
-    shifts.forEach(shift => {
-      // Square API v2: team_member_id is current; employee_id is deprecated but may still appear
-      const eid = shift.team_member_id || shift.employee_id;
+    timecards.forEach(tc => {
+      const eid = tc.employee_id;
       if (!eid) return;
       if (!byEmployee[eid]) byEmployee[eid] = [];
-      const startMs = new Date(shift.start_at).getTime();
-      const endMs   = shift.end_at ? new Date(shift.end_at).getTime() : startMs;
-      const rawHours = (endMs - startMs) / 3600000;
-      // Subtract unpaid breaks
-      const breakMins = (shift.breaks || []).reduce((a, b) => {
-        // breaks have start_at/end_at when clocked, otherwise expected_duration
-        if (b.start_at && b.end_at) {
-          return a + (new Date(b.end_at) - new Date(b.start_at)) / 60000;
-        }
-        return a + (b.expected_duration?.minutes || 0);
-      }, 0);
-      const hours = Math.round((rawHours - breakMins / 60) * 100) / 100;
-      // Shift date in Brisbane time
-      const date = new Date(shift.start_at).toLocaleDateString('sv-SE', { timeZone: 'Australia/Brisbane' });
-      byEmployee[eid].push({ date, hours, startTime: shift.start_at, endTime: shift.end_at, breakMins });
+      const startMs = new Date(tc.clockin_time).getTime();
+      const endMs   = tc.clockout_time ? new Date(tc.clockout_time).getTime() : startMs;
+      // Legacy API provides regular_seconds_worked if available, otherwise calculate
+      const hours = tc.regular_seconds_worked
+        ? Math.round((tc.regular_seconds_worked / 3600) * 100) / 100
+        : Math.round(((endMs - startMs) / 3600000) * 100) / 100;
+      const date = new Date(tc.clockin_time).toLocaleDateString('sv-SE', { timeZone: 'Australia/Brisbane' });
+      byEmployee[eid].push({ date, hours, startTime: tc.clockin_time, endTime: tc.clockout_time });
     });
 
     const staff = Store.getStaff().filter(s => s.active);
