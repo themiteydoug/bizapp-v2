@@ -49,9 +49,29 @@ const StaffModule = (() => {
 
       const imported = active.map(m => {
         const prev = existingById[m.id] || {};
-        // Support both new API (given_name/family_name) and legacy /employees (first_name/last_name)
         const name = [m.given_name || m.first_name, m.family_name || m.last_name].filter(Boolean).join(' ') || m.display_name || m.id;
         const initials = name.split(' ').map(w => w[0]).join('').toUpperCase().slice(0, 2);
+
+        // Extract pay rates from Square wage_setting if available
+        const jobs = m.wage_setting?.job_assignments || [];
+        const weekdayJob  = jobs.find(j => /weekday|team member$/i.test(j.job_title) && !/weekend|saturday|sunday/i.test(j.job_title));
+        const weekendJob  = jobs.find(j => /weekend/i.test(j.job_title));
+        const saturdayJob = jobs.find(j => /saturday/i.test(j.job_title));
+        const sundayJob   = jobs.find(j => /sunday/i.test(j.job_title));
+        const holJob      = jobs.find(j => /holiday|public/i.test(j.job_title));
+
+        const squareRates = {
+          weekday:   weekdayJob  ? (weekdayJob.hourly_rate.amount  / 100).toFixed(2) : '',
+          weekend:   weekendJob  ? (weekendJob.hourly_rate.amount  / 100).toFixed(2) : '',
+          saturday:  saturdayJob ? (saturdayJob.hourly_rate.amount / 100).toFixed(2) : null,
+          sunday:    sundayJob   ? (sundayJob.hourly_rate.amount   / 100).toFixed(2) : null,
+          publicHol: holJob      ? (holJob.hourly_rate.amount      / 100).toFixed(2) : '',
+        };
+
+        // Square job IDs for matching timecards to rates
+        const jobRateMap = {};
+        jobs.forEach(j => { jobRateMap[j.job_id] = j.hourly_rate.amount / 100; });
+
         return {
           id:             prev.id        || 'staff_' + m.id,
           squareId:       m.id,
@@ -60,8 +80,9 @@ const StaffModule = (() => {
           employmentType: prev.employmentType || 'casual',
           awardLevel:     prev.awardLevel     || 1,
           xeroEmployeeId: prev.xeroEmployeeId || '',
-          payRates:       prev.payRates       || { weekday: '', weekend: '', saturday: null, sunday: null, publicHol: '' },
-          notes:          prev.notes          || '',
+          payRates:       Object.values(squareRates).some(Boolean) ? squareRates : (prev.payRates || { weekday: '', weekend: '', saturday: null, sunday: null, publicHol: '' }),
+          jobRateMap,
+          notes:          prev.notes     || '',
           startDate:      m.created_at?.slice(0, 10) || new Date().toISOString().slice(0, 10),
           active:         true,
         };

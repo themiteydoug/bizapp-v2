@@ -129,8 +129,11 @@ const SquareAPI = (() => {
       }, 0);
       const hours = Math.round((rawHours - breakMins / 60) * 100) / 100;
       const date = new Date(tc.start_at).toLocaleDateString('sv-SE', { timeZone: 'Australia/Brisbane' });
+      // Use rate from timecard wage (actual rate applied at clock-in)
       const hourlyRate = (tc.wage?.hourly_rate?.amount || 0) / 100;
-      byEmployee[eid].shifts.push({ date, hours, startTime: tc.start_at, endTime: tc.end_at });
+      const shiftCost  = Math.round(hours * hourlyRate * 100) / 100;
+      byEmployee[eid].shifts.push({ date, hours, startTime: tc.start_at, endTime: tc.end_at, hourlyRate, shiftCost });
+      byEmployee[eid].totalCost = (byEmployee[eid].totalCost || 0) + shiftCost;
       if (hourlyRate) byEmployee[eid].hourlyRate = hourlyRate;
     });
 
@@ -151,7 +154,7 @@ const SquareAPI = (() => {
       return {
         staffId: s.id, squareId: s.squareId, name: s.name,
         shifts: emp.shifts, totalHours, hourlyRate,
-        estimatedCost: Math.round(totalHours * hourlyRate),
+        estimatedCost: emp.totalCost ? Math.round(emp.totalCost) : Math.round(totalHours * hourlyRate),
       };
     }).filter(s => s.shifts.length > 0);
   }
@@ -197,6 +200,7 @@ const SquareAPI = (() => {
     if (CONFIG.FEATURES.DEMO_MODE) { await delay(400); return Store.getStaff(); }
     const data = await proxyFetch('/team-members/search', 'POST', {
       query: { filter: { location_ids: [], statuses: ['ACTIVE'] } },
+      fields: ['wage_setting'],
       limit: 200,
     });
     return data.team_members || [];
