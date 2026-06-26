@@ -71,15 +71,18 @@
           tenantName:    data.tenantName,
         };
 
-        let sent = false;
+        // Write tokens to localStorage — main window picks them up via storage event
+        // (more reliable than postMessage when Xero's COOP headers null window.opener)
+        try {
+          localStorage.setItem('bizops_xero_pending', JSON.stringify(payload));
+        } catch (e) {}
+
+        // Also try postMessage as a secondary channel
         try {
           if (window.opener && !window.opener.closed) {
             window.opener.postMessage(payload, APP_ORIGIN);
-            sent = true;
           }
-        } catch (e) {
-          // opener may be cross-origin in some redirect scenarios
-        }
+        } catch (e) {}
 
         // Show success
         document.getElementById('spinner').style.display = 'none';
@@ -89,9 +92,6 @@
         let detail = `Connected to <strong>${data.tenantName || 'your organisation'}</strong>.`;
         if (data.tenantId) {
           detail += `<br><br>Tenant ID (copy into Vercel env var XERO_TENANT_ID):<br><code>${data.tenantId}</code>`;
-        }
-        if (!sent) {
-          detail += `<br><br><em>If the main app didn't update, close this window and refresh the app.</em>`;
         }
         detail += `<br><br>This window will close in 5 seconds.`;
         document.getElementById('msg').innerHTML = detail;

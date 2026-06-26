@@ -146,22 +146,33 @@ const XeroAPI = (() => {
    * Listens for the postMessage from xero-callback.html after OAuth completes.
    * Must be called once at app boot (done in App.boot).
    */
+  function handleXeroTokenPayload({ access_token, refresh_token, expires_in, tenantId, tenantName }) {
+    Store.saveXeroTokens({ access_token, refresh_token, expires_in });
+    if (tenantId) sessionStorage.setItem('bizops_xero_tenant', tenantId);
+    if (window.App) {
+      App.toast(`Xero connected${tenantName ? ' · ' + tenantName : ''}`, 'success');
+      App.refreshSettings?.();
+      setTimeout(() => { if (window.Dashboard) Dashboard.refresh(); }, 300);
+    }
+  }
+
   function setupCallbackListener() {
+    // Primary: postMessage from popup (may be blocked by Xero's COOP headers)
     window.addEventListener('message', (event) => {
-      // Only accept messages from our own origin
       if (event.origin !== window.location.origin) return;
       if (event.data?.type !== 'XERO_AUTH_SUCCESS') return;
+      handleXeroTokenPayload(event.data);
+    });
 
-      const { access_token, refresh_token, expires_in, tenantId, tenantName } = event.data;
-      Store.saveXeroTokens({ access_token, refresh_token, expires_in });
-      if (tenantId) sessionStorage.setItem('bizops_xero_tenant', tenantId);
-
-      if (window.App) {
-        App.toast(`Xero connected${tenantName ? ' · ' + tenantName : ''}`, 'success');
-        App.refreshSettings?.();
-        // Reload dashboard so Xero data appears immediately
-        setTimeout(() => { if (window.Dashboard) Dashboard.refresh(); }, 300);
-      }
+    // Fallback: localStorage storage event (fires when callback popup writes tokens)
+    window.addEventListener('storage', (event) => {
+      if (event.key !== 'bizops_xero_pending' || !event.newValue) return;
+      try {
+        const payload = JSON.parse(event.newValue);
+        if (payload?.type !== 'XERO_AUTH_SUCCESS') return;
+        localStorage.removeItem('bizops_xero_pending');
+        handleXeroTokenPayload(payload);
+      } catch (e) {}
     });
   }
 
