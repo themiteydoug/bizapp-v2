@@ -221,10 +221,10 @@ const SquareAPI = (() => {
       new Date(s.opened_at).toLocaleDateString('sv-SE', { timeZone: 'Australia/Brisbane' }) === dateStr);
     if (!todayShift) return { startingCash:0, cashSales:0, cashRefunds:0, paidIn:0, paidOut:0, expected:0, expectedInDrawer:0, paidInOutItems:[] };
 
-    // Fetch full shift detail in parallel with events — list endpoint omits cash_payment_money for open shifts
+    // Fetch full shift detail — list endpoint omits cash_payment_money for open shifts
     const [shiftDetail, eventsData] = await Promise.all([
-      proxyFetch(`/cash-drawers/shifts/${todayShift.id}`),
-      proxyFetch(`/cash-drawers/shifts/${todayShift.id}/events`),
+      proxyFetch(`/cash-drawers/shifts/${todayShift.id}`).catch(() => ({})),
+      proxyFetch(`/cash-drawers/shifts/${todayShift.id}/events`).catch(() => ({})),
     ]);
     const shift  = shiftDetail.cash_drawer_shift || todayShift;
     const events = eventsData.cash_drawer_shift_events || [];
