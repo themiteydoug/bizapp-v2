@@ -16,6 +16,7 @@ const SQUARE_BASE = process.env.SQUARE_ENVIRONMENT === 'sandbox'
 
 const ALLOWED_ENDPOINTS = [
   '/orders/search',
+  '/payments',
   '/labor/shifts',
   '/labor/timecards',
   '/employees',
@@ -70,7 +71,7 @@ module.exports = async (req, res) => {
   const locationId = process.env.SQUARE_LOCATION_ID;
   if (
     locationId &&
-    (endpoint.startsWith('/cash-drawers') || endpoint.startsWith('/labor/') || endpoint.startsWith('/employees')) &&
+    (endpoint.startsWith('/cash-drawers') || endpoint.startsWith('/labor/') || endpoint.startsWith('/employees') || endpoint.startsWith('/payments')) &&
     !queryParams.location_id
   ) {
     queryParams.location_id = locationId;

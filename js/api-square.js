@@ -72,44 +72,22 @@ const SquareAPI = (() => {
   // ── Real Square API calls (via proxy) ─────────
 
   async function fetchTakingsReal(dateStr) {
-    const startAt = dateStr + 'T00:00:00+10:00';
-    const endAt   = dateStr + 'T23:59:59+10:00';
-    // location_ids injected server-side by square-proxy
-    const data = await proxyFetch('/orders/search', 'POST', {
-      query: {
-        filter: {
-          date_time_filter: { created_at: { start_at: startAt, end_at: endAt } },
-          state_filter: { states: ['COMPLETED'] },
-        },
-      },
+    // Use /payments (not /orders/search) — captures all payment types including
+    // contactless/wallet transactions that have no associated order
+    const data = await proxyFetch('/payments', 'GET', null, {
+      begin_time: dateStr + 'T00:00:00+10:00',
+      end_time:   dateStr + 'T23:59:59+10:00',
+      limit:      500,
     });
-    const orders = data.orders || [];
+    const payments = (data.payments || []).filter(p => p.status === 'COMPLETED');
     let total = 0, cash = 0, card = 0;
-    orders.forEach(o => {
-      total += (o.total_money?.amount || 0) / 100;
-
-      // Map tender ID → type so refunds can be attributed to cash vs card
-      const tenderType = {};
-      (o.tenders || []).forEach(t => {
-        tenderType[t.id] = t.type;
-        if (t.type === 'CASH') cash += (t.amount_money?.amount || 0) / 100;
-        else card += (t.amount_money?.amount || 0) / 100;
-      });
-
-      // Subtract refunds from cash/card buckets — o.total_money is already gross so leave total alone
-      (o.refunds || []).forEach(r => {
-        const amt = (r.amount_money?.amount || 0) / 100;
-        if (tenderType[r.tender_id] === 'CASH') cash -= amt;
-        else card -= amt;
-      });
+    payments.forEach(p => {
+      const amt = (p.total_money?.amount || 0) / 100;
+      total += amt;
+      if (p.source_type === 'CASH') cash += amt;
+      else card += amt;
     });
-    return {
-      date: dateStr,
-      total,
-      card,
-      cash,
-      transactions: orders.length,
-    };
+    return { date: dateStr, total, card, cash, transactions: payments.length };
   }
 
   async function fetchTimesheetsReal(weekStart, weekEnd) {
