@@ -405,7 +405,7 @@ const XeroAPI = (() => {
     return results;
   }
 
-  // ── Overhead weekly average (financial-year-to-date) ──
+  // ── Overhead weekly average (since 1 July of previous year) ──
 
   // Account name fragments to exclude (wages + super)
   const WAGE_SUPER_KEYWORDS = [
@@ -420,12 +420,15 @@ const XeroAPI = (() => {
   }
 
   /**
-   * Fetches the Xero P&L from the start of the current financial year (1 July)
-   * up to the end of the previous week, and returns the weekly average of
-   * operating expenses excluding wages and superannuation.
+   * Fetches the Xero P&L from 1 July of the previous calendar year up to the
+   * end of the previous week, and returns the weekly average of operating
+   * expenses excluding wages and superannuation.
    *
-   * Example: for the week of Mon 22 Jun 2026, the range is 1 Jul 2025 → 21 Jun
-   * 2026, and the total is divided by the number of weeks in that range.
+   * The 1 July anchor only moves when the calendar year rolls over, so every
+   * week in a given year uses the same start date — e.g. all of 2026 reaches
+   * back to 1 Jul 2025 — giving a long, stable ~12–18 month average.
+   *
+   * Example: week of Mon 22 Jun 2026 → 1 Jul 2025 – 21 Jun 2026.
    *
    * @param {string} currentWeekStart  ISO date (YYYY-MM-DD) of Monday this week
    * @returns {{ weeklyAverage, total, weeks, fromDate, toDate }}
@@ -438,11 +441,10 @@ const XeroAPI = (() => {
     const toD = new Date(currentWeekStart + 'T12:00:00Z');
     toD.setUTCDate(toD.getUTCDate() - 1);
 
-    // Start date = 1 July of the financial year containing the end date.
-    // Australian FY runs 1 Jul – 30 Jun, so months Jan–Jun belong to the FY
-    // that started 1 July of the previous calendar year.
-    const fyStartYear = toD.getUTCMonth() >= 6 ? toD.getUTCFullYear() : toD.getUTCFullYear() - 1;
-    const fromD = new Date(Date.UTC(fyStartYear, 6, 1)); // month 6 = July
+    // Start date = 1 July of the previous calendar year, anchored to the year
+    // of the current week so it only resets on 1 January.
+    const anchorYear  = parseInt(currentWeekStart.slice(0, 4), 10);
+    const fromD = new Date(Date.UTC(anchorYear - 1, 6, 1)); // month 6 = July
 
     const from = fromD.toISOString().slice(0, 10);
     const to   = toD.toISOString().slice(0, 10);
