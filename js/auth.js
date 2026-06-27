@@ -123,10 +123,12 @@ const Auth = (() => {
     pinEntry = '';
     updateDots();
     if (ok) {
-      document.getElementById('login-screen').style.display = 'none';
-      document.getElementById('app').style.display = 'flex';
-      // Apply role-based UI after login
-      if (window.App && App.applyRoleUI) App.applyRoleUI();
+      // Re-boot the app so it loads cleanly with the new session and the correct
+      // role applied from the start. Without this, the dashboard keeps the
+      // previous role's view (and data) until a manual refresh, because it was
+      // built before login. The PIN session lives in sessionStorage, which
+      // survives a reload, so we stay logged in.
+      location.reload();
     } else {
       document.getElementById('pin-error').textContent = 'Incorrect PIN — try again';
       setTimeout(() => {
