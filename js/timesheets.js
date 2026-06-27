@@ -152,7 +152,11 @@ const TimesheetsModule = (() => {
 
       // Day rows with category tags — prefer the Xero award rate applied
       // (shift.rateName/dayType), falling back to the staff payRates mapping.
-      const dayRows = ts.shifts.map(shift => {
+      // Sort ascending so days read Mon → Sun down the page.
+      const dayRows = [...ts.shifts]
+        .sort((a, b) => (a.date || '').localeCompare(b.date || '')
+          || (a.startTime || '').localeCompare(b.startTime || ''))
+        .map(shift => {
         let category, dayType;
         if (shift.rateName) {
           category = shift.rateName; dayType = shift.dayType || 'weekday';
@@ -196,7 +200,7 @@ const TimesheetsModule = (() => {
               <div class="staff-card-meta">${ts.shifts.length} shifts${ts.salaried ? ' · salaried' : hasOT ? ' · ⚠ OT' : ''}</div>
             </div>
             <div class="staff-card-right">
-              <div class="staff-hours-badge">${ts.totalHours}h</div>
+              <div class="staff-hours-badge">${Math.round((ts.totalHours || 0) * 100) / 100}h</div>
               ${ts.salaried ? '<span class="badge badge-ok">Salaried</span>'
                 : hasOT ? '<span class="badge badge-warn">OT</span>' : '<span class="badge badge-ok">OK</span>'}
             </div>
