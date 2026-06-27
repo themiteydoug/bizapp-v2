@@ -279,7 +279,16 @@ const TimesheetsModule = (() => {
       );
       Store.logTsPush(currentWeekStart, Holidays.getWeekEnd(currentWeekStart), results);
       renderPushStatus(currentWeekStart);
-      App.toast(`Timesheets sent to Xero — ${results.length} employees`);
+
+      const ok      = results.filter(r => r.status === 'ok').length;
+      const skipped = results.filter(r => r.status === 'skipped').length;
+      const errs    = results.filter(r => r.status === 'error');
+      if (errs.length) {
+        console.warn('[Xero push] failures:', errs);
+        App.toast(`Pushed ${ok} · ${errs.length} failed — ${errs[0].name}: ${errs[0].error}`, 'error');
+      } else {
+        App.toast(`Pushed ${ok} to Xero${skipped ? ` · ${skipped} salaried skipped` : ''}`);
+      }
     } catch (e) {
       App.toast('Error pushing timesheets: ' + e.message, 'error');
     } finally {

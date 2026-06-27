@@ -566,84 +566,78 @@ const XeroAPI = (() => {
    * @param {Function} onProgress     (name, 'sending'|'done'|'error') callback
    */
   async function pushTimesheets(weekStart, timesheetData, onProgress) {
-    const weekEnd = Holidays.getWeekEnd(weekStart);
+    const weekEnd  = Holidays.getWeekEnd(weekStart);
     const settings = Store.getSettings();
+    const results  = [];
 
-    // Build name → EarningsRateID map once per push
-    let nameToId = {};
-    if (!CONFIG.FEATURES.DEMO_MODE) {
-      const items = await getPayItemsWithIds();
-      nameToId = Object.fromEntries(items.map(i => [i.name, i.id]));
+    if (CONFIG.FEATURES.DEMO_MODE) {
+      for (const ts of timesheetData) {
+        if (ts.salaried) { results.push({ name: ts.name, status: 'skipped', reason: 'salaried' }); continue; }
+        await delay(300);
+        results.push({ name: ts.name, status: 'ok' });
+        if (onProgress) onProgress(ts.name, 'done');
+      }
+      return results;
     }
 
-    const results = [];
+    const info = await getEmployeePayInfo();
+    const nameToId = info.nameToId || {};
+    // Day 0 = weekStart (Monday) … Day 6 = Sunday — AU Payroll wants NumberOfUnits
+    // as a per-day array across the timesheet period, not a single total.
+    const dayIndex = date =>
+      Math.round((Date.parse(date + 'T12:00:00Z') - Date.parse(weekStart + 'T12:00:00Z')) / 86400000);
 
     for (const ts of timesheetData) {
-      const staffMember = Store.getStaff().find(s => s.id === ts.staffId);
-      if (!staffMember) continue;
+      // Salaried staff are paid by salary in Xero — never push their timesheets.
+      if (ts.salaried) { results.push({ name: ts.name, status: 'skipped', reason: 'salaried' }); continue; }
 
-      if (onProgress) onProgress(staffMember.name, 'sending');
-
-      if (CONFIG.FEATURES.DEMO_MODE) {
-        await delay(400);
-        results.push({ staffId: ts.staffId, name: ts.name, status: 'ok' });
-        if (onProgress) onProgress(staffMember.name, 'done');
+      const pi = matchPayInfo(info, ts.name, ts.email);
+      const employeeId = ts.xeroEmployeeId || pi?.xeroEmployeeId;
+      if (!employeeId) {
+        results.push({ name: ts.name, status: 'error', error: 'No Xero employee match' });
+        if (onProgress) onProgress(ts.name, 'error');
         continue;
       }
 
-      // Group hours by pay category
-      const categoryHours = {};
-      for (const shift of ts.shifts) {
-        const { category } = Holidays.getXeroCategoryForShift(
-          shift.date, staffMember, settings.ekkaBrisbane
-        );
-        if (!categoryHours[category]) categoryHours[category] = 0;
-        categoryHours[category] += shift.hours;
+      if (onProgress) onProgress(ts.name, 'sending');
+
+      // Group the (adjusted) hours by earnings rate into per-day arrays.
+      const rateUnits = {};
+      let missingRate = null;
+      for (const sh of (ts.shifts || [])) {
+        const dt = sh.dayType || Holidays.getDayType(sh.date, settings.ekkaBrisbane);
+        const rateName = sh.rateName || awardRule('casual', ts.level || pi?.level || 1, dt).rate;
+        const idx = dayIndex(sh.date);
+        if (idx < 0 || idx > 6) continue;
+        if (!nameToId[rateName]) { missingRate = rateName; break; }
+        if (!rateUnits[rateName]) rateUnits[rateName] = [0, 0, 0, 0, 0, 0, 0];
+        rateUnits[rateName][idx] += sh.hours;
+      }
+      if (missingRate) {
+        results.push({ name: ts.name, status: 'error', error: `Earnings rate not found in Xero: "${missingRate}"` });
+        if (onProgress) onProgress(ts.name, 'error');
+        continue;
       }
 
-      // Look up EarningsRateIDs
-      const lines = [];
-      for (const [rateName, hours] of Object.entries(categoryHours)) {
-        const rateId = nameToId[rateName];
-        if (!rateId) {
-          results.push({
-            staffId: ts.staffId,
-            name:    ts.name,
-            status:  'error',
-            error:   `Pay rate not found in Xero: "${rateName}" — check Staff mapping`,
-          });
-          if (onProgress) onProgress(staffMember.name, 'error');
-          continue;
-        }
-        lines.push({
-          EarningsRateID: rateId,
-          NumberOfUnits:  parseFloat(hours.toFixed(2)),
-        });
-      }
+      const lines = Object.entries(rateUnits).map(([rateName, units]) => ({
+        EarningsRateID: nameToId[rateName],
+        NumberOfUnits:  units.map(u => Math.round(u * 100) / 100),
+      }));
+      if (!lines.length) { results.push({ name: ts.name, status: 'skipped', reason: 'no hours' }); continue; }
 
-      if (!lines.length) continue;
-
-      const payload = {
-        Timesheets: [{
-          EmployeeID:     staffMember.xeroEmployeeId,
-          StartDate:      weekStart,
-          EndDate:        weekEnd,
-          Status:         'DRAFT',
-          TimesheetLines: lines,
-        }],
-      };
+      const payload = { Timesheets: [{
+        EmployeeID: employeeId, StartDate: weekStart, EndDate: weekEnd,
+        Status: 'DRAFT', TimesheetLines: lines,
+      }] };
 
       try {
-        await proxyFetch('/Timesheets', {
-          method: 'POST',
-          body:   JSON.stringify(payload),
-        }, true); // payroll endpoint
-
-        results.push({ staffId: ts.staffId, name: ts.name, status: 'ok' });
-        if (onProgress) onProgress(staffMember.name, 'done');
+        await proxyFetch('/Timesheets', { method: 'POST', body: JSON.stringify(payload) }, true);
+        results.push({ name: ts.name, status: 'ok' });
+        if (onProgress) onProgress(ts.name, 'done');
       } catch (err) {
-        results.push({ staffId: ts.staffId, name: ts.name, status: 'error', error: err.message });
-        if (onProgress) onProgress(staffMember.name, 'error');
+        console.error('[Xero push]', ts.name, err.message);
+        results.push({ name: ts.name, status: 'error', error: err.message });
+        if (onProgress) onProgress(ts.name, 'error');
       }
     }
 
