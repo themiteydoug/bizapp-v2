@@ -8,6 +8,12 @@ const App = (() => {
   const pages = ['dashboard', 'invoices', 'cash', 'timesheets', 'staff'];
   let activePage = 'dashboard';
 
+  // Shared selected week (Monday ISO date) so the chosen week persists across
+  // tabs for like-for-like comparisons. Defaults to the current week.
+  let selectedWeek = null;
+  function getWeek() { return selectedWeek || Holidays.getWeekStart(); }
+  function setWeek(weekStart) { if (weekStart) selectedWeek = weekStart; }
+
   // ── Navigation ────────────────────────────────
 
   function nav(page) {
@@ -323,6 +329,6 @@ const App = (() => {
     boot();
   }
 
-  return { nav, toast, openSettings, refreshSettings, applyRoleUI };
+  return { nav, toast, openSettings, refreshSettings, applyRoleUI, getWeek, setWeek };
 
 })();

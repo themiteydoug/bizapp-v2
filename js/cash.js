@@ -55,7 +55,7 @@ const CashModule = (() => {
     document.getElementById('tab-weekly').classList.toggle('active', tab === 'weekly');
     document.getElementById('cash-daily-section').style.display  = tab === 'daily'  ? 'block' : 'none';
     document.getElementById('cash-weekly-section').style.display = tab === 'weekly' ? 'block' : 'none';
-    if (tab === 'weekly') loadWeeklyData();
+    if (tab === 'weekly') { weeklyWeekStart = App.getWeek(); loadWeeklyData(); }
   }
 
   function updateDateLabel() {
@@ -437,6 +437,7 @@ const CashModule = (() => {
     const next = d.toISOString().slice(0, 10);
     if (next > new Date().toISOString().slice(0, 10)) return;
     weeklyWeekStart = next;
+    App.setWeek(weeklyWeekStart);
     loadWeeklyData();
   }
 

@@ -10,7 +10,7 @@ const TimesheetsModule = (() => {
 
   function init() {
     bindEvents();
-    loadWeek(currentWeekStart);
+    loadWeek(App.getWeek());   // shared across tabs
   }
 
   function bindEvents() {
@@ -108,6 +108,7 @@ const TimesheetsModule = (() => {
 
   async function loadWeek(weekStart) {
     currentWeekStart = weekStart;
+    App.setWeek(weekStart);
     document.getElementById('ts-week-label').textContent = Holidays.formatWeekLabel(weekStart);
     document.getElementById('ts-staff-list').innerHTML = '<div class="empty-state">Loading from Square…</div>';
     document.getElementById('ts-total-hours').textContent = '—';

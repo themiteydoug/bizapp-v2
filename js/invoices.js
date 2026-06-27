@@ -11,6 +11,7 @@ const InvoiceModule = (() => {
   let editingId = null;   // id of the invoice being edited, or null when creating
 
   function init() {
+    currentWeekStart = App.getWeek();   // shared across tabs
     renderForm();
     renderWeekNav();
     loadWeekInvoices();
@@ -34,6 +35,7 @@ const InvoiceModule = (() => {
       const d = new Date(currentWeekStart + 'T12:00:00');
       d.setDate(d.getDate() - 7);
       currentWeekStart = d.toISOString().slice(0, 10);
+      App.setWeek(currentWeekStart);
       document.getElementById('inv-week-label').textContent = Holidays.formatWeekLabel(currentWeekStart);
       loadWeekInvoices();
     });
@@ -43,6 +45,7 @@ const InvoiceModule = (() => {
       const next = d.toISOString().slice(0, 10);
       if (next > new Date().toISOString().slice(0, 10)) return;
       currentWeekStart = next;
+      App.setWeek(currentWeekStart);
       document.getElementById('inv-week-label').textContent = Holidays.formatWeekLabel(currentWeekStart);
       loadWeekInvoices();
     });

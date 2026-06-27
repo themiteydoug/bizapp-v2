@@ -10,6 +10,7 @@ const Dashboard = (() => {
   let currentWeekStart = Holidays.getWeekStart();
 
   async function init() {
+    currentWeekStart = App.getWeek();   // shared across tabs
     setHeaderDate();
     bindWeekNav();
     await refresh();
@@ -30,6 +31,7 @@ const Dashboard = (() => {
       const d = new Date(currentWeekStart + 'T12:00:00');
       d.setDate(d.getDate() - 7);
       currentWeekStart = d.toISOString().slice(0, 10);
+      App.setWeek(currentWeekStart);
       updateWeekLabel();
       refresh();
     });
@@ -40,6 +42,7 @@ const Dashboard = (() => {
       const thisWeek = Holidays.getWeekStart();
       if (next > thisWeek) return;
       currentWeekStart = next;
+      App.setWeek(currentWeekStart);
       updateWeekLabel();
       refresh();
     });
