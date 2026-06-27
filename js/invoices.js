@@ -283,10 +283,12 @@ const InvoiceModule = (() => {
       const filled = applyScan(parsed);
       setScanStatus(filled
         ? 'Read from invoice — please check the details below'
-        : 'Couldn’t read the details — enter them manually', false);
+        : 'Couldn’t read the details — please enter them manually', false);
     } catch (err) {
+      // Keep the technical detail in the console for debugging; show the user
+      // a plain, friendly message.
       console.warn('[OCR]', err.message);
-      setScanStatus('Auto-read failed: ' + err.message + ' — enter details manually', false);
+      setScanStatus('Couldn’t read this invoice — please enter the details manually', false);
     }
   }
 
