@@ -224,10 +224,13 @@ const App = (() => {
       const esc = s => String(s ?? '').replace(/[&<>]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]));
       const row = (l, r) => `<div style="display:flex;justify-content:space-between;gap:8px;padding:3px 0;border-bottom:1px solid var(--border)"><span>${l}</span><span style="color:var(--text-3);white-space:nowrap;text-align:right">${r}</span></div>`;
 
-      const rateDetail = r =>
-        r.rateType === 'MultipleOfOrdinaryEarningsRate' ? `× ${r.multiplier}`
-        : r.rateType === 'RatePerUnit' ? (r.ratePerUnit != null ? '$' + r.ratePerUnit + '/' + (r.unitType || 'unit') : 'per-employee rate')
-        : (r.rateType || '—');
+      const rateDetail = r => {
+        const rt = String(r.rateType || '').toUpperCase();
+        if (rt.includes('MULTIPLE')) return r.multiplier != null ? `× ${r.multiplier}` : '× ?';
+        if (rt.includes('RATEPERUNIT')) return r.ratePerUnit != null ? '$' + r.ratePerUnit + '/hr' : 'per-employee';
+        if (rt.includes('FIXED')) return r.ratePerUnit != null ? '$' + r.ratePerUnit : 'fixed';
+        return r.rateType || '—';
+      };
 
       const rates = d.earningsRates.map(r => row(esc(r.name), esc(rateDetail(r)))).join('') || '<em>none</em>';
       const emps  = d.employees.map(e =>
@@ -235,11 +238,15 @@ const App = (() => {
             e.baseRate != null ? '$' + e.baseRate + '/hr' : '—')
       ).join('') || '<em>none</em>';
 
+      const rawJson = esc(JSON.stringify(d.raw, null, 2));
+
       out.innerHTML = `
         <div style="margin-top:8px;font-weight:600;color:var(--text-1)">Earnings rates (${d.earningsRates.length})</div>
         ${rates}
         <div style="margin-top:14px;font-weight:600;color:var(--text-1)">Employees — base rate (${d.employees.length})</div>
         ${emps}
+        <div style="margin-top:14px;font-weight:600;color:var(--text-1)">Raw sample (for mapping)</div>
+        <pre style="white-space:pre-wrap;word-break:break-word;font-size:10px;background:var(--surface-2);padding:8px;border-radius:6px;margin-top:6px">${rawJson}</pre>
         <div style="margin-top:10px;color:var(--text-3)">Full detail also logged to the browser console.</div>
       `;
     } catch (err) {

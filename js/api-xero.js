@@ -328,20 +328,26 @@ const XeroAPI = (() => {
       unitType:     r.TypeOfUnits,
     }));
 
-    // 2. Employees + base rate from each pay template (needs the detail call)
+    const rateById = Object.fromEntries(earningsRates.map(r => [r.id, r]));
+
+    // 2. Employees + base rate. The base rate may sit on the employee's pay-
+    // template earnings line OR (if not overridden) on the ordinary earnings
+    // rate itself — try both. Capture the first raw detail for structure check.
     const empList = (await proxyFetch('/Employees', {}, true)).Employees || [];
-    const employees = await Promise.all(empList.map(async e => {
+    let rawEmployeeSample = null;
+    const employees = await Promise.all(empList.map(async (e, i) => {
       let baseRate = null, ordinaryName = null;
       let basis = e.EmploymentBasis || e.EmploymentType || null;
       try {
         const detail = (await proxyFetch(`/Employees/${e.EmployeeID}`, {}, true)).Employees?.[0] || {};
+        if (i === 0) rawEmployeeSample = detail;
         basis = detail.EmploymentBasis || basis;
+        const ordId = detail.OrdinaryEarningsRateID;
         const lines = detail.PayTemplate?.EarningsLines || [];
-        const ordLine = lines.find(l => l.EarningsRateID === detail.OrdinaryEarningsRateID) || lines[0];
-        if (ordLine) {
-          baseRate     = ordLine.RatePerUnit ?? null;
-          ordinaryName = earningsRates.find(r => r.id === ordLine.EarningsRateID)?.name || null;
-        }
+        const ordLine = lines.find(l => l.EarningsRateID === ordId) || lines[0];
+        baseRate     = ordLine?.RatePerUnit ?? rateById[ordId]?.ratePerUnit ?? null;
+        ordinaryName = rateById[ordId]?.name
+          ?? (ordLine && rateById[ordLine.EarningsRateID]?.name) ?? null;
       } catch (_) { /* detail fetch failed — leave base rate null */ }
       return {
         name:  `${e.FirstName || ''} ${e.LastName || ''}`.trim() || e.EmployeeID,
@@ -350,9 +356,21 @@ const XeroAPI = (() => {
       };
     }));
 
+    // Trimmed raw samples so the exact field names/values are visible on screen
+    const rawRate = (payData.PayItems?.EarningsRates || [])[0] || null;
+    const rawEmp  = rawEmployeeSample ? {
+      EmployeeID:             rawEmployeeSample.EmployeeID,
+      Name:                   `${rawEmployeeSample.FirstName || ''} ${rawEmployeeSample.LastName || ''}`.trim(),
+      EmploymentBasis:        rawEmployeeSample.EmploymentBasis,
+      OrdinaryEarningsRateID: rawEmployeeSample.OrdinaryEarningsRateID,
+      EarningsLines:          rawEmployeeSample.PayTemplate?.EarningsLines,
+    } : null;
+
     console.log('[Xero payroll] earnings rates:', earningsRates);
     console.log('[Xero payroll] employees:', employees);
-    return { earningsRates, employees };
+    console.log('[Xero payroll] RAW sample rate:', rawRate);
+    console.log('[Xero payroll] RAW sample employee:', rawEmployeeSample);
+    return { earningsRates, employees, raw: { rate: rawRate, employee: rawEmp } };
   }
 
   // ── Timesheets ────────────────────────────────
