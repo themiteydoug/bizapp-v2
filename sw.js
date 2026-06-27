@@ -1,5 +1,5 @@
 /**
- * BizOps Service Worker v6
+ * BizOps Service Worker v7
  * Caches ONLY static assets — never API responses or financial data (FIND-004)
  *
  * Strategy: NETWORK-FIRST for the app shell so code/UI updates apply on the next
@@ -7,7 +7,7 @@
  * (v5 was cache-first, which pinned stale JS until the cache name was bumped.)
  */
 
-const CACHE = 'bizops-v6';
+const CACHE = 'bizops-v7';
 
 // Only static shell files — NO API endpoints
 const STATIC_SHELL = [
@@ -71,9 +71,11 @@ self.addEventListener('fetch', e => {
   }
 
   // Network-first for the app shell: fetch fresh, cache the result, and only
-  // fall back to the cached copy when offline.
+  // fall back to the cached copy when offline. Use cache:'no-store' so the
+  // request bypasses the browser HTTP cache — otherwise an unversioned
+  // /js/app.js can be served stale even though we go "network-first".
   e.respondWith(
-    fetch(req)
+    fetch(req, { cache: 'no-store' })
       .then(response => {
         if (response.ok && response.type === 'basic') {
           const clone = response.clone();
