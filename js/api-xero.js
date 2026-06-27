@@ -479,8 +479,11 @@ const XeroAPI = (() => {
       if (!pi) return ts;                       // unmatched → keep Square cost
 
       if (pi.salaried) {
+        // Salaried managers are a fixed cost outside the variable labour metric
+        // (Square's labour figure is hourly staff only), so don't add them to
+        // the labour total. Keep the salary for reference / future use.
         return { ...ts, salaried: true, baseRate: null, xeroEmployeeId: pi.xeroEmployeeId,
-                 estimatedCost: pi.weeklyCost ?? ts.estimatedCost, awardSource: 'salary' };
+                 estimatedCost: 0, weeklySalary: pi.weeklyCost, awardSource: 'salary' };
       }
       if (pi.baseRate == null) return ts;
 
