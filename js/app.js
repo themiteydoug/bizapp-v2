@@ -55,11 +55,14 @@ const App = (() => {
     document.body.classList.toggle('role-manager', isManager);
     document.body.classList.toggle('role-staff',   !isManager);
 
+    // Toggle a class rather than inline display so grid/flex containers keep
+    // their natural layout when shown (inline display:'' was collapsing the
+    // 2-col hero-metrics grids to a single column).
     document.querySelectorAll('.manager-only').forEach(el => {
-      el.style.display = isManager ? '' : 'none';
+      el.classList.toggle('is-hidden', !isManager);
     });
     document.querySelectorAll('.staff-only').forEach(el => {
-      el.style.display = isManager ? 'none' : '';
+      el.classList.toggle('is-hidden', isManager);
     });
 
     // Show role badge in header

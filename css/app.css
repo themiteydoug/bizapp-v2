@@ -257,6 +257,10 @@ body {
 }
 .status-time { margin-left: auto; }
 
+/* Role-based visibility — toggled by class so the element keeps its natural
+   display (e.g. grid) when shown, instead of being clobbered by inline style */
+.is-hidden { display: none !important; }
+
 /* Hero metrics */
 .hero-metrics {
   display: grid;
