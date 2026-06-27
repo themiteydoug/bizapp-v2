@@ -282,8 +282,12 @@ const XeroAPI = (() => {
       Reference: invoiceData.invoiceNo,
     };
 
+    // Editing an existing bill: include its InvoiceID and POST to update it
+    // instead of PUT (which would create a duplicate).
+    if (invoiceData.xeroId) payload.InvoiceID = invoiceData.xeroId;
+
     const data = await proxyFetch('/Invoices', {
-      method: 'PUT',
+      method: invoiceData.xeroId ? 'POST' : 'PUT',
       body:   JSON.stringify({ Invoices: [payload] }),
     });
 

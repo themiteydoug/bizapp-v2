@@ -8,6 +8,7 @@ const InvoiceModule = (() => {
 
   let photoDataUrl = null;
   let currentWeekStart = Holidays.getWeekStart();
+  let editingId = null;   // id of the invoice being edited, or null when creating
 
   function init() {
     renderForm();
@@ -63,6 +64,18 @@ const InvoiceModule = (() => {
     const suppliers = getPastSuppliers();
     const todayBrisbane = new Date().toLocaleDateString('sv-SE', { timeZone: 'Australia/Brisbane' });
 
+    // When editing, pre-fill from the existing invoice
+    const editing = editingId ? Store.getInvoices().find(i => i.id === editingId) : null;
+    if (editing && !photoDataUrl) photoDataUrl = editing.photoDataUrl || null;
+    const v = {
+      supplier:  editing?.supplier || '',
+      invoiceNo: editing?.invoiceNo || '',
+      date:      editing?.invoiceDate || todayBrisbane,
+      total:     editing?.totalIncGst != null ? editing.totalIncGst : '',
+      gst:       editing?.gst != null ? editing.gst : '',
+      notes:     editing?.notes || '',
+    };
+
     container.innerHTML = `
       <!-- Photo capture — required -->
       <div class="section-label">Invoice photo <span style="color:var(--red-500)">*</span></div>
@@ -72,13 +85,13 @@ const InvoiceModule = (() => {
       <input type="file" id="inv-photo-library" accept="image/*" style="display:none">
 
       <!-- Photo zone — tap to open camera -->
-      <label class="photo-zone" id="photo-zone" for="inv-photo-camera" style="display:block;cursor:pointer">
-        <div id="photo-placeholder" style="display:flex;flex-direction:column;align-items:center;padding:24px 0">
+      <label class="photo-zone" id="photo-zone" for="inv-photo-camera" style="display:block;cursor:pointer${photoDataUrl ? ';border:2px solid var(--green-400)' : ''}">
+        <div id="photo-placeholder" style="${photoDataUrl ? 'display:none' : 'display:flex'};flex-direction:column;align-items:center;padding:24px 0">
           <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" style="color:var(--green-400)"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"></path><circle cx="12" cy="13" r="4"></circle></svg>
           <div style="font-size:13px;font-weight:500;color:var(--text-2);margin-top:8px">Tap to photograph invoice</div>
           <div style="font-size:11px;color:var(--text-3);margin-top:3px">Required before saving</div>
         </div>
-        <img id="photo-preview" style="display:none;width:100%;border-radius:var(--r-md);max-height:220px;object-fit:cover">
+        <img id="photo-preview" src="${photoDataUrl || ''}" style="${photoDataUrl ? 'display:block' : 'display:none'};width:100%;border-radius:var(--r-md);max-height:220px;object-fit:cover">
       </label>
 
       <div style="display:flex;gap:8px;margin-bottom:4px">
@@ -98,7 +111,7 @@ const InvoiceModule = (() => {
         <div class="field-group">
           <label class="field-label">Supplier <span style="color:var(--red-500)">*</span></label>
           <input class="field-input" id="inv-supplier" list="supplier-list"
-            placeholder="Supplier name" autocomplete="off">
+            placeholder="Supplier name" autocomplete="off" value="${escHtml(v.supplier)}">
           <datalist id="supplier-list">
             ${suppliers.map(s => `<option value="${escHtml(s)}">`).join('')}
           </datalist>
@@ -107,11 +120,11 @@ const InvoiceModule = (() => {
         <div class="field-row-2">
           <div class="field-group">
             <label class="field-label">Invoice # <span style="color:var(--red-500)">*</span></label>
-            <input class="field-input" id="inv-no" placeholder="INV-001">
+            <input class="field-input" id="inv-no" placeholder="INV-001" value="${escHtml(v.invoiceNo)}">
           </div>
           <div class="field-group">
             <label class="field-label">Invoice date</label>
-            <input class="field-input" type="date" id="inv-date" value="${todayBrisbane}">
+            <input class="field-input" type="date" id="inv-date" value="${v.date}">
           </div>
         </div>
 
@@ -120,12 +133,12 @@ const InvoiceModule = (() => {
           <div class="field-group">
             <label class="field-label">Total inc GST ($)</label>
             <input class="field-input" type="number" id="inv-total-gst"
-              placeholder="0.00" step="0.01" inputmode="decimal">
+              placeholder="0.00" step="0.01" inputmode="decimal" value="${v.total}">
           </div>
           <div class="field-group">
             <label class="field-label">GST amount ($)</label>
             <input class="field-input" type="number" id="inv-gst"
-              placeholder="auto" step="0.01" inputmode="decimal">
+              placeholder="auto" step="0.01" inputmode="decimal" value="${v.gst}">
           </div>
         </div>
         <div class="field-group">
@@ -136,14 +149,15 @@ const InvoiceModule = (() => {
 
         <div class="field-group">
           <label class="field-label">Notes (optional)</label>
-          <input class="field-input" id="inv-notes" placeholder="Any notes…">
+          <input class="field-input" id="inv-notes" placeholder="Any notes…" value="${escHtml(v.notes)}">
         </div>
       </div>
 
       <button class="primary-btn full-btn" id="save-invoice-btn">
         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="22" y1="2" x2="11" y2="13"></line><polygon points="22 2 15 22 11 13 2 9 22 2"></polygon></svg>
-        Save &amp; send to Xero
+        ${editing ? 'Update invoice' : 'Save &amp; send to Xero'}
       </button>
+      ${editing ? `<button class="secondary-btn full-btn" id="cancel-edit-btn" style="margin-top:8px">Cancel edit</button>` : ''}
     `;
 
     // Bind events programmatically — no inline onclick
@@ -152,6 +166,21 @@ const InvoiceModule = (() => {
     document.getElementById('inv-total-gst').addEventListener('input', calcGST);
     document.getElementById('inv-gst').addEventListener('input', calcGST);
     document.getElementById('save-invoice-btn').addEventListener('click', save);
+    document.getElementById('cancel-edit-btn')?.addEventListener('click', cancelEdit);
+    if (editing) calcGST();   // show ex-GST for the prefilled total
+  }
+
+  // Load an existing invoice into the form for editing
+  function startEdit(id) {
+    editingId = id;
+    photoDataUrl = null;   // renderForm repopulates from the invoice
+    renderForm();
+    document.getElementById('invoice-form')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }
+
+  function cancelEdit() {
+    editingId = null;
+    resetForm();
   }
 
   function calcGST() {
@@ -200,6 +229,8 @@ const InvoiceModule = (() => {
     const btn = document.getElementById('save-invoice-btn');
     if (btn) { btn.disabled = true; btn.textContent = 'Saving…'; }
 
+    const existing = editingId ? Store.getInvoices().find(i => i.id === editingId) : null;
+
     const invoiceData = {
       supplier,
       invoiceNo,
@@ -208,19 +239,30 @@ const InvoiceModule = (() => {
       gst,
       subtotal:    exGst,
       notes:       document.getElementById('inv-notes')?.value || '',
-      date:        new Date().toLocaleDateString('sv-SE', { timeZone: 'Australia/Brisbane' }),
+      // Keep the original entry date when editing so it stays in the same week
+      date:        existing?.date || new Date().toLocaleDateString('sv-SE', { timeZone: 'Australia/Brisbane' }),
       photoDataUrl,
+      // Pass the existing Xero id so the proxy updates that bill instead of creating one
+      xeroId:      existing?.xeroId,
     };
+
+    const persist = (extra) => editingId
+      ? Store.updateInvoice(editingId, { ...invoiceData, ...extra })
+      : Store.saveInvoice({ ...invoiceData, ...extra });
 
     try {
       const xeroBill = await XeroAPI.createDraftBill(invoiceData);
-      Store.saveInvoice({ ...invoiceData, xeroId: xeroBill?.id, status: 'synced' });
-      App.toast(`${supplier} · $${exGst.toFixed(2)} ex GST sent to Xero`);
+      persist({ xeroId: xeroBill?.id || invoiceData.xeroId, status: 'synced', error: null });
+      App.toast(editingId
+        ? `${supplier} updated · $${exGst.toFixed(2)} ex GST`
+        : `${supplier} · $${exGst.toFixed(2)} ex GST sent to Xero`);
+      editingId = null;
       resetForm();
       loadWeekInvoices();
     } catch (err) {
-      Store.saveInvoice({ ...invoiceData, status: 'pending', error: err.message });
-      App.toast('Saved locally — Xero sync failed', 'warning');
+      persist({ status: 'pending', error: err.message });
+      App.toast(editingId ? 'Updated locally — Xero sync failed' : 'Saved locally — Xero sync failed', 'warning');
+      editingId = null;
       resetForm();
       loadWeekInvoices();
     } finally {
@@ -250,7 +292,7 @@ const InvoiceModule = (() => {
       return;
     }
     list.innerHTML = '<div class="card">' + invoices.map(inv => `
-      <div class="invoice-item">
+      <div class="invoice-item" style="cursor:pointer" onclick="InvoiceModule.startEdit('${inv.id}')" title="Tap to edit">
         <div class="invoice-icon">
           ${inv.photoDataUrl
             ? `<img src="${inv.photoDataUrl}" style="width:36px;height:36px;border-radius:var(--r-sm);object-fit:cover">`
@@ -278,6 +320,6 @@ const InvoiceModule = (() => {
     return String(s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
   }
 
-  return { init, calcGST, save };
+  return { init, calcGST, save, startEdit, cancelEdit };
 
 })();

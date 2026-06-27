@@ -91,10 +91,10 @@ const SquareAPI = (() => {
     let total = 0, cash = 0, card = 0, gst = 0;
     orders.forEach(o => {
       total += (o.total_money?.amount || 0) / 100;
-      // GST collected on this order — Square computes tax per line item, so not all
-      // saleable items attract GST (e.g. GST-free food). total_tax_money is the
-      // actual GST charged on the order.
-      gst += (o.total_tax_money?.amount || 0) / 100;
+      // GST collected on this order. Use net_amounts.tax_money (tax after any
+      // returns/refunds) so the figure matches Square's "Taxes" line, which is
+      // net of refunds; fall back to total_tax_money when net isn't present.
+      gst += (o.net_amounts?.tax_money?.amount ?? o.total_tax_money?.amount ?? 0) / 100;
       const tenders = o.tenders || [];
       const tenderType = {};
       tenders.forEach(t => {
