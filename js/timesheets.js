@@ -43,8 +43,51 @@ const TimesheetsModule = (() => {
     if (val != null && (isNaN(val) || val < 0)) val = 0;
     Store.saveTsAdjustment(input.dataset.key, val);   // persist (or clear if null)
     applyAdjustmentInMemory(input.dataset.key, val);
-    renderTimesheets(currentTimesheets, currentWeekStart);
-    App.toast(val == null ? 'Reverted to Square hours' : 'Hours adjusted');
+    // Update totals + this row IN PLACE so the expanded card stays open and
+    // the manager can keep editing down the list without reopening it.
+    updateRowInPlace(input);
+    updateWeekTotals();
+  }
+
+  // Refresh the edited row's input value, its "was Xh" marker and the staff
+  // card's hours badge — without re-rendering (which would collapse the card).
+  function updateRowInPlace(input) {
+    const sep = input.dataset.key.indexOf('|');
+    const squareId  = input.dataset.key.slice(0, sep);
+    const startTime = input.dataset.key.slice(sep + 1);
+    const ts = currentTimesheets.find(t => String(t.squareId) === squareId);
+    if (!ts) return;
+    const shift = ts.shifts.find(s => s.startTime === startTime);
+    if (!shift) return;
+
+    input.value = shift.hours;   // normalise (e.g. blank → reverted Square hours)
+
+    const row = input.closest('.ts-day-row');
+    let mark = row?.querySelector('.ts-adj-mark');
+    if (shift.adjusted) {
+      if (!mark) {
+        mark = document.createElement('span');
+        mark.className = 'ts-adj-mark';
+        mark.style.cssText = 'font-size:10px;color:var(--amber-800)';
+        input.insertAdjacentElement('afterend', mark);
+      }
+      mark.textContent = `✎ was ${shift.squareHours}h`;
+      mark.title = `Adjusted from Square ${shift.squareHours}h`;
+    } else if (mark) {
+      mark.remove();
+    }
+
+    const badge = input.closest('.staff-card')?.querySelector('.staff-hours-badge');
+    if (badge) badge.textContent = ts.totalHours + 'h';
+  }
+
+  function updateWeekTotals() {
+    const totalHours = currentTimesheets.reduce((a, t) => a + (t.totalHours || 0), 0);
+    const totalCost  = currentTimesheets.reduce((a, t) => a + (t.estimatedCost || 0), 0);
+    const set = (id, v) => { const el = document.getElementById(id); if (el) el.textContent = v; };
+    set('ts-total-hours', totalHours.toFixed(1) + 'h');
+    set('ts-labour-cost', '$' + totalCost.toLocaleString());
+    set('ts-avg-rate', 'avg $' + (totalHours ? (totalCost / totalHours).toFixed(2) : '—') + '/hr');
   }
 
   // Update the in-memory timesheets so totals + push reflect the edit immediately
@@ -121,7 +164,7 @@ const TimesheetsModule = (() => {
                 style="width:64px;text-align:right;font-size:13px;font-weight:600;padding:4px 6px;border:1.5px solid var(--border);border-radius:6px;background:var(--surface-2);color:var(--text-1)">`
           : `<span class="ts-hours">${shift.hours}h</span>`;
         const adjMark = shift.adjusted
-          ? `<span style="font-size:10px;color:var(--amber-800)" title="Adjusted from Square ${shift.squareHours}h">✎ was ${shift.squareHours}h</span>`
+          ? `<span class="ts-adj-mark" style="font-size:10px;color:var(--amber-800)" title="Adjusted from Square ${shift.squareHours}h">✎ was ${shift.squareHours}h</span>`
           : '';
         return `
           <div class="ts-day-row">
