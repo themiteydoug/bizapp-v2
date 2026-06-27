@@ -145,7 +145,7 @@ const XeroAPI = (() => {
         // Append the raw upstream snippet + Xero status so the actual cause
         // (e.g. an HTML 404/405 page) is visible without digging.
         if (e._debug?.xeroStatus) msg += ` (Xero ${e._debug.xeroStatus})`;
-        if (e._debug?.body) msg += ` · ${String(e._debug.body).replace(/\s+/g, ' ').slice(0, 200)}`;
+        if (e._debug?.body) msg += ` · ${String(e._debug.body).replace(/\s+/g, ' ').slice(0, 600)}`;
         if (e._debug?.url) msg += ` · ${e._debug.url}`;
         console.error(`[Xero proxy] ${endpoint} → ${res.status}`, e);
       } catch {}
@@ -630,10 +630,12 @@ const XeroAPI = (() => {
       }));
       if (!lines.length) { results.push({ name: ts.name, status: 'skipped', reason: 'no hours' }); continue; }
 
-      const payload = { Timesheets: [{
+      // AU Payroll wants a bare array of timesheet objects at the top level —
+      // wrapping it in { Timesheets: [...] } triggers a JSON deserialization 400.
+      const payload = [{
         EmployeeID: employeeId, StartDate: weekStart, EndDate: weekEnd,
         Status: 'DRAFT', TimesheetLines: lines,
-      }] };
+      }];
 
       try {
         await proxyFetch('/Timesheets', { method: 'POST', body: JSON.stringify(payload) }, true);
