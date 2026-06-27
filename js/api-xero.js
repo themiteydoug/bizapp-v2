@@ -474,16 +474,16 @@ const XeroAPI = (() => {
     catch (e) { console.warn('[Xero award] pay info failed:', e.message); return timesheets; }
 
     const settings = Store.getSettings();
-    return timesheets.map(ts => {
+    const out = timesheets.map(ts => {
       const pi = info.byName[normalizeName(ts.name)];
       if (!pi) return ts;                       // unmatched → keep Square cost
 
       if (pi.salaried) {
-        // Salaried managers are a fixed cost outside the variable labour metric
-        // (Square's labour figure is hourly staff only), so don't add them to
-        // the labour total. Keep the salary for reference / future use.
-        return { ...ts, salaried: true, baseRate: null, xeroEmployeeId: pi.xeroEmployeeId,
-                 estimatedCost: 0, weeklySalary: pi.weeklyCost, awardSource: 'salary' };
+        // Salaried managers: keep their Square-derived cost (clocked hours ×
+        // hourly rate) so the labour figure matches Square. Flag them so the
+        // Xero push skips them (no penalty recalc).
+        return { ...ts, salaried: true, xeroEmployeeId: pi.xeroEmployeeId,
+                 weeklySalary: pi.weeklyCost, awardSource: 'square' };
       }
       if (pi.baseRate == null) return ts;
 
@@ -498,6 +498,10 @@ const XeroAPI = (() => {
       return { ...ts, shifts, baseRate: pi.baseRate, level: pi.level,
                estimatedCost, awardSource: 'xero', xeroEmployeeId: pi.xeroEmployeeId };
     });
+    console.log('[Xero award] per-staff cost:', out.map(t =>
+      `${t.name}: ${t.totalHours}h $${t.estimatedCost} (${t.awardSource || 'square'})`));
+    console.log('[Xero award] labour total: $' + out.reduce((a, t) => a + (t.estimatedCost || 0), 0));
+    return out;
   }
 
   // ── Timesheets ────────────────────────────────
