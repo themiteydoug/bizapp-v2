@@ -17,6 +17,33 @@ const XeroAPI = (() => {
 
   // Cache for pay item ID lookups (avoid repeated API calls per session)
   let _payItemsCache = null;
+  let _payInfoCache  = null;   // employee pay info (base rate / level / salary)
+
+  // ── Award rates (Fast Food Award) ─────────────
+  // Multiplier × the employee's ordinary base rate, plus the Xero earnings-rate
+  // name to push hours against, keyed by employment type → level → day type.
+  // Current roster is all Casual Level 1; PT/FT and Level 2+ (which split the
+  // weekend into separate Sat/Sun rates) can be added here when needed.
+  const AWARD = {
+    casual: {
+      1: {
+        weekday:        { mult: 1.25, rate: 'Casual Level 1' },
+        saturday:       { mult: 1.5,  rate: 'Weekend Penalty Rate Casual' },
+        sunday:         { mult: 1.5,  rate: 'Weekend Penalty Rate Casual' },
+        public_holiday: { mult: 2.5,  rate: 'Public Holiday Casual' },
+      },
+    },
+  };
+
+  function awardRule(employmentType, level, dayType) {
+    const byLevel = (AWARD[employmentType] || AWARD.casual);
+    const rules   = byLevel[level] || byLevel[1];
+    return rules[dayType] || rules.weekday;
+  }
+
+  function normalizeName(s) {
+    return String(s || '').toLowerCase().replace(/\s+/g, ' ').trim();
+  }
 
   // ── Token helpers ─────────────────────────────
 
@@ -390,6 +417,86 @@ const XeroAPI = (() => {
     return { earningsRates, employees, raw: { rate: rawRate, employee: rawEmp } };
   }
 
+  // ── Employee pay info (for wage calc) ─────────
+
+  /**
+   * Cached map of employee → { baseRate, level, salaried, weeklyCost, … }
+   * keyed by normalized name, plus the earnings-rate name→id map for pushing.
+   */
+  async function getEmployeePayInfo(force) {
+    if (_payInfoCache && !force) return _payInfoCache;
+    if (CONFIG.FEATURES.DEMO_MODE) { _payInfoCache = { byName: {}, nameToId: {} }; return _payInfoCache; }
+
+    const payData = await proxyFetch('/PayItems', {}, true);
+    const rates = (payData.PayItems?.EarningsRates || []);
+    const rateById  = Object.fromEntries(rates.map(r => [r.EarningsRateID, r]));
+    const nameToId  = Object.fromEntries(rates.map(r => [r.Name, r.EarningsRateID]));
+
+    const empList = (await proxyFetch('/Employees', {}, true)).Employees || [];
+    const byName = {};
+    for (const e of empList) {   // sequential — Xero concurrency cap
+      try {
+        const detail = (await proxyFetch(`/Employees/${e.EmployeeID}`, {}, true)).Employees?.[0];
+        if (!detail) continue;
+        const ordId   = detail.OrdinaryEarningsRateID;
+        const lines   = detail.PayTemplate?.EarningsLines || [];
+        const ordLine = lines.find(l => l.EarningsRateID === ordId) || lines[0];
+        const baseRate     = ordLine?.RatePerUnit ?? rateById[ordId]?.RatePerUnit ?? null;
+        const annualSalary = ordLine?.AnnualSalary ?? null;
+        const ordName = rateById[ordId]?.Name || '';
+        const lvl     = ordName.match(/level\s*([0-9]+)/i);
+        const salaried = (annualSalary || 0) > 0;
+        const name = `${e.FirstName || ''} ${e.LastName || ''}`.trim();
+        byName[normalizeName(name)] = {
+          name, xeroEmployeeId: e.EmployeeID,
+          baseRate, level: lvl ? parseInt(lvl[1], 10) : 1, salaried,
+          weeklyCost: salaried ? Math.round((annualSalary / 52) * 100) / 100 : null,
+          ordinaryEarningsRateID: ordId,
+        };
+      } catch (err) {
+        console.warn('[Xero payinfo] failed for', e.EmployeeID, err.message);
+      }
+    }
+    _payInfoCache = { byName, nameToId };
+    return _payInfoCache;
+  }
+
+  /**
+   * Recompute each timesheet's cost from Xero base rates × Fast Food Award
+   * multipliers (per shift day type). Salaried staff are flagged and costed at
+   * their fixed weekly salary. Falls back to the Square-derived cost for anyone
+   * not matched in Xero, and no-ops if Xero isn't connected.
+   */
+  async function applyAwardRates(timesheets, weekStart) {
+    if (CONFIG.FEATURES.DEMO_MODE || !isConnected()) return timesheets;
+    let info;
+    try { info = await getEmployeePayInfo(); }
+    catch (e) { console.warn('[Xero award] pay info failed:', e.message); return timesheets; }
+
+    const settings = Store.getSettings();
+    return timesheets.map(ts => {
+      const pi = info.byName[normalizeName(ts.name)];
+      if (!pi) return ts;                       // unmatched → keep Square cost
+
+      if (pi.salaried) {
+        return { ...ts, salaried: true, baseRate: null, xeroEmployeeId: pi.xeroEmployeeId,
+                 estimatedCost: pi.weeklyCost ?? ts.estimatedCost, awardSource: 'salary' };
+      }
+      if (pi.baseRate == null) return ts;
+
+      const shifts = (ts.shifts || []).map(sh => {
+        const dayType = Holidays.getDayType(sh.date, settings.ekkaBrisbane);
+        const rule    = awardRule('casual', pi.level || 1, dayType);
+        const rate    = Math.round(pi.baseRate * rule.mult * 100) / 100;
+        return { ...sh, baseRate: pi.baseRate, hourlyRate: rate, multiplier: rule.mult,
+                 rateName: rule.rate, dayType, shiftCost: Math.round(sh.hours * rate * 100) / 100 };
+      });
+      const estimatedCost = Math.round(shifts.reduce((a, s) => a + (s.shiftCost || 0), 0));
+      return { ...ts, shifts, baseRate: pi.baseRate, level: pi.level,
+               estimatedCost, awardSource: 'xero', xeroEmployeeId: pi.xeroEmployeeId };
+    });
+  }
+
   // ── Timesheets ────────────────────────────────
 
   /**
@@ -596,6 +703,8 @@ const XeroAPI = (() => {
     getPayRates,
     getPayItemsWithIds,
     inspectPayroll,
+    getEmployeePayInfo,
+    applyAwardRates,
     pushTimesheets,
     getOverheadAverage,
   };

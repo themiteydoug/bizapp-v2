@@ -116,8 +116,10 @@ const TimesheetsModule = (() => {
 
     try {
       const data = await SquareAPI.getWeekTimesheets(weekStart);
-      currentTimesheets = data;
-      renderTimesheets(data, weekStart);
+      // Recompute pay from Xero award rates (base × penalty multiplier per day);
+      // no-ops if Xero isn't connected, keeping the Square-derived figures.
+      currentTimesheets = await XeroAPI.applyAwardRates(data, weekStart);
+      renderTimesheets(currentTimesheets, weekStart);
       renderPushStatus(weekStart);
       renderHolidayAlert(weekStart);
     } catch (e) {
@@ -146,11 +148,18 @@ const TimesheetsModule = (() => {
       const hasOT = ts.totalHours > 38;
       const initials = staffMember?.initials || ts.name.split(' ').map(n=>n[0]).join('').slice(0,2);
 
-      // Day rows with category tags
+      // Day rows with category tags — prefer the Xero award rate applied
+      // (shift.rateName/dayType), falling back to the staff payRates mapping.
       const dayRows = ts.shifts.map(shift => {
-        const { category, dayType } = staffMember
-          ? Holidays.getXeroCategoryForShift(shift.date, staffMember, settings.ekkaBrisbane)
-          : { category: 'Weekday', dayType: 'weekday' };
+        let category, dayType;
+        if (shift.rateName) {
+          category = shift.rateName; dayType = shift.dayType || 'weekday';
+        } else if (staffMember && staffMember.payRates) {
+          ({ category, dayType } = Holidays.getXeroCategoryForShift(shift.date, staffMember, settings.ekkaBrisbane));
+        } else {
+          dayType = Holidays.getDayType(shift.date, settings.ekkaBrisbane);
+          category = dayType.replace('_', ' ');
+        }
         const catClass = dayType === 'weekday' ? 'cat-weekday'
           : dayType === 'saturday' ? 'cat-saturday'
           : dayType.includes('sunday') ? 'cat-sunday'

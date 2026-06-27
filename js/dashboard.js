@@ -60,7 +60,7 @@ const Dashboard = (() => {
     try {
       const isManager = Auth.isManager();
 
-      const [weekTotals, timesheets, overhead] = await Promise.all([
+      const [weekTotals, rawTimesheets, overhead] = await Promise.all([
         SquareAPI.getWeeklyTotals(currentWeekStart, weekEnd),
         SquareAPI.getWeekTimesheets(currentWeekStart),
         (isManager && XeroAPI.isConnected())
@@ -71,7 +71,24 @@ const Dashboard = (() => {
           : Promise.resolve(null),
       ]);
 
-      renderMetrics(weekTotals, timesheets, overhead, currentWeekStart, weekEnd);
+      // Recost timesheets from Xero award rates (casual penalties + salary).
+      const timesheets = await XeroAPI.applyAwardRates(rawTimesheets, currentWeekStart);
+
+      // Add salaried staff who didn't clock in to Square (fixed weekly cost).
+      let salariedExtra = 0;
+      if (isManager && XeroAPI.isConnected()) {
+        try {
+          const info = await XeroAPI.getEmployeePayInfo();
+          const present = new Set(timesheets.map(t => (t.name || '').toLowerCase().replace(/\s+/g, ' ').trim()));
+          for (const pi of Object.values(info.byName)) {
+            if (pi.salaried && pi.weeklyCost && !present.has(pi.name.toLowerCase().replace(/\s+/g, ' ').trim())) {
+              salariedExtra += pi.weeklyCost;
+            }
+          }
+        } catch (e) { console.warn('Salaried cost lookup failed:', e.message); }
+      }
+
+      renderMetrics(weekTotals, timesheets, overhead, currentWeekStart, weekEnd, salariedExtra);
     } catch (e) {
       console.error('Dashboard refresh error:', e);
       App.toast('Sync error: ' + e.message, 'error');
@@ -88,7 +105,7 @@ const Dashboard = (() => {
    *   COGS uses inv.subtotal (already ex-GST per invoice)
    *   net profit = net sales − staff cost − COGS − overhead avg
    */
-  function renderMetrics(weekTotals, timesheets, overhead, weekStart, weekEnd) {
+  function renderMetrics(weekTotals, timesheets, overhead, weekStart, weekEnd, salariedExtra = 0) {
     const fmt    = n => (n < 0 ? '-$' : '$') + Math.abs(Math.round(n)).toLocaleString();
     const fmtAud = n => '$' + (n || 0).toLocaleString('en-AU', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
     const set    = (id, val) => { const el = document.getElementById(id); if (el) el.textContent = val; };
@@ -101,7 +118,7 @@ const Dashboard = (() => {
     const pctNum   = n => netSales > 0 ? (n / netSales * 100) : 0;
     const pct      = n => netSales > 0 ? pctNum(n).toFixed(1) + '% of net sales' : '—';
 
-    const staffCost = timesheets.reduce((s, emp) => s + (emp.estimatedCost || 0), 0);
+    const staffCost = timesheets.reduce((s, emp) => s + (emp.estimatedCost || 0), 0) + (salariedExtra || 0);
 
     const weekInvoices = Store.getInvoices().filter(inv => inv.date >= weekStart && inv.date <= weekEnd);
     const cogs = weekInvoices.reduce((s, inv) => s + (inv.subtotal || 0), 0);   // ex-GST
