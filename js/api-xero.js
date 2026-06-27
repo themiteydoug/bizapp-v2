@@ -478,8 +478,17 @@ const XeroAPI = (() => {
     catch (e) { console.warn('[Xero award] pay info failed:', e.message); return timesheets; }
 
     const settings = Store.getSettings();
-    const matchPi = ts =>
-      (ts.email && info.byEmail?.[ts.email.toLowerCase()]) || info.byName[normalizeName(ts.name)] || null;
+    const matchPi = ts => {
+      const email = (ts.email || '').toLowerCase();
+      if (email && info.byEmail?.[email]) return info.byEmail[email];
+      const n = normalizeName(ts.name);
+      if (info.byName[n]) return info.byName[n];
+      // Fuzzy fallback for truncated/abbreviated names (e.g. "jonah mcw" vs
+      // "jonah mcwhirter"). Only accept a UNIQUE prefix match so the two Jacks
+      // (Kennedy/Ferguson) never cross-match.
+      const cands = Object.keys(info.byName).filter(k => k.startsWith(n) || n.startsWith(k));
+      return cands.length === 1 ? info.byName[cands[0]] : null;
+    };
 
     const out = timesheets.map(ts => {
       const pi = matchPi(ts);
