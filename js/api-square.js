@@ -161,19 +161,20 @@ const SquareAPI = (() => {
       if (hourlyRate) byEmployee[eid].hourlyRate = hourlyRate;
     });
 
+    const round2 = n => Math.round(n * 100) / 100;
     const staff = Store.getStaff().filter(s => s.active);
     if (!staff.length) {
       return Object.entries(byEmployee).map(([eid, emp]) => ({
         staffId: eid, squareId: eid, name: eid,
         shifts: emp.shifts,
-        totalHours: emp.shifts.reduce((a, sh) => a + sh.hours, 0),
+        totalHours: round2(emp.shifts.reduce((a, sh) => a + sh.hours, 0)),
         hourlyRate: emp.hourlyRate,
         estimatedCost: Math.round(emp.shifts.reduce((a, sh) => a + sh.hours, 0) * emp.hourlyRate),
       }));
     }
     return staff.map(s => {
       const emp = byEmployee[s.squareId] || { shifts: [], hourlyRate: 0 };
-      const totalHours = emp.shifts.reduce((a, sh) => a + sh.hours, 0);
+      const totalHours = round2(emp.shifts.reduce((a, sh) => a + sh.hours, 0));
       const hourlyRate = emp.hourlyRate || 0;
       return {
         staffId: s.id, squareId: s.squareId, name: s.name,

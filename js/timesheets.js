@@ -145,7 +145,9 @@ const TimesheetsModule = (() => {
       totalHours += ts.totalHours;
       totalCost += ts.estimatedCost || 0;
 
-      const hasOT = ts.totalHours > 38;
+      // Overtime is a >38 hrs/week heuristic for hourly staff only — salaried
+      // managers don't accrue OT, so never flag them.
+      const hasOT = !ts.salaried && ts.totalHours > 38;
       const initials = staffMember?.initials || ts.name.split(' ').map(n=>n[0]).join('').slice(0,2);
 
       // Day rows with category tags — prefer the Xero award rate applied
@@ -191,11 +193,12 @@ const TimesheetsModule = (() => {
             <div class="staff-avatar">${initials}</div>
             <div class="staff-card-info">
               <div class="staff-card-name">${ts.name}</div>
-              <div class="staff-card-meta">${ts.shifts.length} shifts${hasOT ? ' · ⚠ OT' : ''}</div>
+              <div class="staff-card-meta">${ts.shifts.length} shifts${ts.salaried ? ' · salaried' : hasOT ? ' · ⚠ OT' : ''}</div>
             </div>
             <div class="staff-card-right">
               <div class="staff-hours-badge">${ts.totalHours}h</div>
-              ${hasOT ? '<span class="badge badge-warn">OT</span>' : '<span class="badge badge-ok">OK</span>'}
+              ${ts.salaried ? '<span class="badge badge-ok">Salaried</span>'
+                : hasOT ? '<span class="badge badge-warn">OT</span>' : '<span class="badge badge-ok">OK</span>'}
             </div>
           </div>
           <div class="ts-days hidden" style="padding:0 14px 12px">

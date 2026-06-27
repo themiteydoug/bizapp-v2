@@ -433,7 +433,7 @@ const XeroAPI = (() => {
     const nameToId  = Object.fromEntries(rates.map(r => [r.Name, r.EarningsRateID]));
 
     const empList = (await proxyFetch('/Employees', {}, true)).Employees || [];
-    const byName = {};
+    const byName = {}, byEmail = {};
     for (const e of empList) {   // sequential — Xero concurrency cap
       try {
         const detail = (await proxyFetch(`/Employees/${e.EmployeeID}`, {}, true)).Employees?.[0];
@@ -446,26 +446,30 @@ const XeroAPI = (() => {
         const ordName = rateById[ordId]?.Name || '';
         const lvl     = ordName.match(/level\s*([0-9]+)/i);
         const salaried = (annualSalary || 0) > 0;
-        const name = `${e.FirstName || ''} ${e.LastName || ''}`.trim();
-        byName[normalizeName(name)] = {
-          name, xeroEmployeeId: e.EmployeeID,
+        const name  = `${e.FirstName || ''} ${e.LastName || ''}`.trim();
+        const email = (detail.Email || e.Email || '').toLowerCase();
+        const pi = {
+          name, email, xeroEmployeeId: e.EmployeeID,
           baseRate, level: lvl ? parseInt(lvl[1], 10) : 1, salaried,
           weeklyCost: salaried ? Math.round((annualSalary / 52) * 100) / 100 : null,
           ordinaryEarningsRateID: ordId,
         };
+        byName[normalizeName(name)] = pi;
+        if (email) byEmail[email] = pi;
       } catch (err) {
         console.warn('[Xero payinfo] failed for', e.EmployeeID, err.message);
       }
     }
-    _payInfoCache = { byName, nameToId };
+    _payInfoCache = { byName, byEmail, nameToId };
     return _payInfoCache;
   }
 
   /**
    * Recompute each timesheet's cost from Xero base rates × Fast Food Award
-   * multipliers (per shift day type). Salaried staff are flagged and costed at
-   * their fixed weekly salary. Falls back to the Square-derived cost for anyone
-   * not matched in Xero, and no-ops if Xero isn't connected.
+   * day type — used for the Xero push. The COST stays as Square's figure, which
+   * already applies the award penalty rates (and matches Xero within a dollar
+   * or two), so we don't re-derive it. Matched salaried staff are flagged so the
+   * push skips them. No-ops if Xero isn't connected.
    */
   async function applyAwardRates(timesheets, weekStart) {
     if (CONFIG.FEATURES.DEMO_MODE || !isConnected()) return timesheets;
@@ -474,35 +478,28 @@ const XeroAPI = (() => {
     catch (e) { console.warn('[Xero award] pay info failed:', e.message); return timesheets; }
 
     const settings = Store.getSettings();
+    const matchPi = ts =>
+      (ts.email && info.byEmail?.[ts.email.toLowerCase()]) || info.byName[normalizeName(ts.name)] || null;
+
     const out = timesheets.map(ts => {
-      const pi = info.byName[normalizeName(ts.name)];
-      if (!pi) return ts;                       // unmatched → keep Square cost
+      const pi = matchPi(ts);
+      if (!pi) return ts;   // unmatched → keep Square cost, no push annotation
 
       if (pi.salaried) {
-        // Salaried staff who clocked into Square that week are counted at their
-        // true weekly cost (annual salary / 52) — included in total wages, but
-        // NOT pushed to Xero (their pay is finalised in Xero directly). Salaried
-        // staff with no Square timesheet that week simply aren't in this list.
-        return { ...ts, salaried: true, xeroEmployeeId: pi.xeroEmployeeId,
-                 estimatedCost: pi.weeklyCost ?? ts.estimatedCost,
-                 weeklySalary: pi.weeklyCost, awardSource: 'salary' };
+        // Flag salaried so the push skips them; keep their Square cost as-is.
+        return { ...ts, salaried: true, xeroEmployeeId: pi.xeroEmployeeId, weeklySalary: pi.weeklyCost };
       }
-      if (pi.baseRate == null) return ts;
-
+      // Annotate each shift with day type + the casual earnings rate to push
+      // against. Cost (shiftCost/estimatedCost) is left untouched (Square's).
       const shifts = (ts.shifts || []).map(sh => {
         const dayType = Holidays.getDayType(sh.date, settings.ekkaBrisbane);
         const rule    = awardRule('casual', pi.level || 1, dayType);
-        const rate    = Math.round(pi.baseRate * rule.mult * 100) / 100;
-        return { ...sh, baseRate: pi.baseRate, hourlyRate: rate, multiplier: rule.mult,
-                 rateName: rule.rate, dayType, shiftCost: Math.round(sh.hours * rate * 100) / 100 };
+        return { ...sh, dayType, rateName: rule.rate };
       });
-      const estimatedCost = Math.round(shifts.reduce((a, s) => a + (s.shiftCost || 0), 0));
-      return { ...ts, shifts, baseRate: pi.baseRate, level: pi.level,
-               estimatedCost, awardSource: 'xero', xeroEmployeeId: pi.xeroEmployeeId };
+      return { ...ts, shifts, baseRate: pi.baseRate, level: pi.level, xeroEmployeeId: pi.xeroEmployeeId };
     });
-    console.log('[Xero award] per-staff cost:', out.map(t =>
-      `${t.name}: ${t.totalHours}h $${t.estimatedCost} (${t.awardSource || 'square'})`));
-    console.log('[Xero award] labour total: $' + out.reduce((a, t) => a + (t.estimatedCost || 0), 0));
+    console.log('[Xero award] labour total (Square costs): $' +
+      out.reduce((a, t) => a + (t.estimatedCost || 0), 0).toFixed(2));
     return out;
   }
 
