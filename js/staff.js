@@ -98,7 +98,7 @@ const StaffModule = (() => {
     }
   }
 
-  function renderList() {
+  async function renderList() {
     const list = document.getElementById('staff-list');
     if (!list) return;
     const staff = Store.getStaff().filter(s => s.active);
@@ -106,22 +106,33 @@ const StaffModule = (() => {
       list.innerHTML = '<div class="empty-state">No staff configured</div>';
       return;
     }
-    list.innerHTML = staff.map(s => {
-      const hasWeekend = s.awardLevel <= 1 ? !!s.payRates.weekend : !!s.payRates.saturday && !!s.payRates.sunday;
-      const allMapped = !!s.payRates.weekday && hasWeekend && !!s.payRates.publicHol;
-      const levelLabel = `Level ${s.awardLevel} · ${s.employmentType === 'casual' ? 'Casual' : 'Part-time'}`;
+    // Classification comes from Xero (cached) — type, level, rate.
+    const classes = await Promise.all(
+      staff.map(s => XeroAPI.getStaffClassification(s.name, s.email).catch(() => null))
+    );
+    list.innerHTML = staff.map((s, i) => {
+      const c = classes[i];
+      let meta, badge, badgeClass;
+      if (!c) {
+        meta = XeroAPI.isConnected() ? 'Not matched in Xero' : 'Connect Xero';
+        badge = '—'; badgeClass = 'badge-warn';
+      } else if (c.salaried) {
+        meta = `Salaried · $${(c.weeklyCost || 0).toFixed(0)}/wk`;
+        badge = 'Salaried'; badgeClass = 'badge-ok';
+      } else {
+        meta = `Casual · Level ${c.level} · $${(c.baseRate || 0).toFixed(2)}/hr`;
+        badge = 'Casual'; badgeClass = 'badge-ok';
+      }
       return `
         <div class="staff-card" onclick="StaffModule.openProfile('${s.id}')">
           <div class="staff-card-inner">
             <div class="staff-avatar">${s.initials}</div>
             <div class="staff-card-info">
               <div class="staff-card-name">${s.name}</div>
-              <div class="staff-card-meta">${levelLabel} · ${s.payRates.weekday || 'Weekday not set'}</div>
+              <div class="staff-card-meta">${meta}</div>
             </div>
             <div class="staff-card-right">
-              <span class="badge ${allMapped ? 'badge-ok' : 'badge-warn'}">
-                ${allMapped ? 'Mapped' : 'Incomplete'}
-              </span>
+              <span class="badge ${badgeClass}">${badge}</span>
             </div>
           </div>
         </div>
