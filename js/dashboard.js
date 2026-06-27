@@ -106,10 +106,11 @@ const Dashboard = (() => {
     const overheadWk = overhead?.weeklyAverage || 0;
     const netProfit  = netSales - staffCost - cogs - overheadWk;
 
-    // Tile 1 — Weekly sales (display gross; show GST + transactions underneath)
-    set('dash-takings',       fmt(gross));
+    // Tile 1 — Weekly sales shown EX-GST (the figure all percentages use);
+    // gross takings + GST collected shown underneath for reference.
+    set('dash-takings',       fmt(netSales));
     set('dash-takings-delta', weekTotals.transactions ? weekTotals.transactions + ' transactions' : '');
-    set('dash-gst',           gst > 0 ? 'incl. ' + fmtAud(gst) + ' GST' : '');
+    set('dash-gst',           gst > 0 ? `gross ${fmt(gross)} · ${fmtAud(gst)} GST` : '');
 
     // Tile 2 — Total staff cost
     set('dash-staff-cost', staffCost > 0 ? fmt(staffCost) : '—');
