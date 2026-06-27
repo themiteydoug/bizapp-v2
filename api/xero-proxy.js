@@ -61,8 +61,9 @@ module.exports = async (req, res) => {
   const accessToken = req.headers['x-access-token'];
   if (!accessToken) return res.status(401).json({ error: 'Missing X-Access-Token header' });
 
-  const endpoint  = req.query.endpoint;
-  const isPayroll = req.query.payroll === 'true';
+  const endpoint     = req.query.endpoint;
+  const isPayroll    = req.query.payroll === 'true';
+  const isAttachment = req.query.attachment === 'true';
 
   if (!endpoint) return res.status(400).json({ error: 'Missing endpoint query parameter' });
 
@@ -75,22 +76,34 @@ module.exports = async (req, res) => {
   const queryParams = { ...req.query };
   delete queryParams.endpoint;
   delete queryParams.payroll;
+  delete queryParams.attachment;
   const qs = Object.keys(queryParams).length ? '?' + new URLSearchParams(queryParams) : '';
   const url = `${base}${endpoint}${qs}`;
 
-  // GET/HEAD must never carry a body — Xero's fetch rejects it with
-  // "Request with GET/HEAD method cannot have body." Vercel parses an empty
-  // JSON body into req.body={} even on GETs, so guard strictly on method.
-  const hasBody = req.method !== 'GET' && req.method !== 'HEAD' && req.body
-    && !(typeof req.body === 'object' && Object.keys(req.body).length === 0);
-  const requestBody = hasBody
-    ? (typeof req.body === 'string' ? req.body : JSON.stringify(req.body))
-    : undefined;
+  // Attachments: the app sends { fileBase64, contentType } as JSON; forward the
+  // decoded bytes to Xero as binary with the image's own content-type.
+  let requestBody;
+  let bodyContentType = 'application/json';
+  if (isAttachment) {
+    const b = typeof req.body === 'string' ? JSON.parse(req.body) : (req.body || {});
+    if (!b.fileBase64) return res.status(400).json({ error: 'Attachment missing fileBase64' });
+    requestBody     = Buffer.from(b.fileBase64, 'base64');
+    bodyContentType = b.contentType || 'application/octet-stream';
+  } else {
+    // GET/HEAD must never carry a body — Xero's fetch rejects it with
+    // "Request with GET/HEAD method cannot have body." Vercel parses an empty
+    // JSON body into req.body={} even on GETs, so guard strictly on method.
+    const hasBody = req.method !== 'GET' && req.method !== 'HEAD' && req.body
+      && !(typeof req.body === 'object' && Object.keys(req.body).length === 0);
+    requestBody = hasBody
+      ? (typeof req.body === 'string' ? req.body : JSON.stringify(req.body))
+      : undefined;
+  }
 
   const makeHeaders = (token) => ({
     'Authorization':  `Bearer ${token}`,
     'Xero-Tenant-Id': process.env.XERO_TENANT_ID,
-    'Content-Type':   'application/json',
+    'Content-Type':   bodyContentType,
     'Accept':         'application/json',
   });
 

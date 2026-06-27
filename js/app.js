@@ -167,6 +167,20 @@ const App = (() => {
       </div>
 
       <div class="settings-group">
+        <div class="settings-group-label">Invoices</div>
+        <div class="settings-item">
+          <span class="settings-item-label">Require invoice photo</span>
+          <label style="display:flex;align-items:center;gap:8px;cursor:pointer">
+            <input type="checkbox" id="require-photo-toggle" ${s.requirePhoto !== false ? 'checked' : ''}>
+            <span class="settings-item-value">${s.requirePhoto !== false ? 'Required' : 'Optional'}</span>
+          </label>
+        </div>
+        <div class="settings-item" style="font-size:11px;color:var(--text-3);line-height:1.5">
+          Turn off if invoices arrive by email. Photos are still read automatically and attached to the Xero bill when added.
+        </div>
+      </div>
+
+      <div class="settings-group">
         <div class="settings-group-label">Session</div>
         <div class="settings-item">
           <span class="settings-item-label">Role</span>
@@ -213,6 +227,12 @@ const App = (() => {
       ?.addEventListener('change', function () {
         Store.saveSetting('ekkaBrisbane', this.checked);
         App.toast('Ekka holiday ' + (this.checked ? 'enabled' : 'disabled'));
+      });
+    body.querySelector('#require-photo-toggle')
+      ?.addEventListener('change', function () {
+        Store.saveSetting('requirePhoto', this.checked);
+        App.toast('Invoice photo ' + (this.checked ? 'required' : 'optional'));
+        refreshSettings();
       });
     body.querySelector('[data-action="inspect-xero"]')
       ?.addEventListener('click', inspectXero);

@@ -338,6 +338,32 @@ const XeroAPI = (() => {
     return data.Invoices?.[0];
   }
 
+  /**
+   * Append a photo to an existing Xero bill via the Attachments API.
+   * The proxy decodes the base64 and forwards it to Xero as binary with the
+   * correct image content-type (attachment=true switches the proxy to binary).
+   */
+  async function attachToBill(invoiceId, dataUrl, filenameHint) {
+    if (!invoiceId || !dataUrl) return;
+    if (CONFIG.FEATURES.DEMO_MODE) { await delay(300); return; }
+
+    const m = /^data:([^;]+);base64,(.+)$/.exec(dataUrl);
+    if (!m) return;
+    const [, contentType, b64] = m;
+    const ext  = contentType.includes('png') ? 'png'
+               : contentType.includes('webp') ? 'webp'
+               : contentType.includes('gif') ? 'gif' : 'jpg';
+    const safe = String(filenameHint || 'invoice').replace(/[^a-zA-Z0-9_-]/g, '') || 'invoice';
+    const name = `${safe}.${ext}`;
+
+    return proxyFetch(
+      `/Invoices/${invoiceId}/Attachments/${name}`,
+      { method: 'PUT', body: JSON.stringify({ fileBase64: b64, contentType }) },
+      false,
+      { attachment: 'true' }
+    );
+  }
+
   // ── Pay items ─────────────────────────────────
 
   /** Returns [{ id, name }] — IDs are Xero EarningsRateIDs (UUIDs). */
@@ -758,6 +784,7 @@ const XeroAPI = (() => {
     isConnected,
     getDraftBills,
     createDraftBill,
+    attachToBill,
     getPayRates,
     getPayItemsWithIds,
     inspectPayroll,

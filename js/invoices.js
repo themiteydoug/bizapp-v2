@@ -66,6 +66,7 @@ const InvoiceModule = (() => {
     if (!container) return;
     const suppliers = getPastSuppliers();
     const todayBrisbane = new Date().toLocaleDateString('sv-SE', { timeZone: 'Australia/Brisbane' });
+    const requirePhoto = Store.getSettings().requirePhoto !== false;   // default: required
 
     // When editing, pre-fill from the existing invoice
     const editing = editingId ? Store.getInvoices().find(i => i.id === editingId) : null;
@@ -80,8 +81,8 @@ const InvoiceModule = (() => {
     };
 
     container.innerHTML = `
-      <!-- Photo capture — required -->
-      <div class="section-label">Invoice photo <span style="color:var(--red-500)">*</span></div>
+      <!-- Photo capture -->
+      <div class="section-label">Invoice photo ${requirePhoto ? '<span style="color:var(--red-500)">*</span>' : '<span style="color:var(--text-3);font-weight:400">(optional)</span>'}</div>
 
       <!-- File inputs — activated via <label for=""> so iOS camera opens reliably -->
       <input type="file" id="inv-photo-camera"  accept="image/*" capture="environment" style="display:none">
@@ -92,10 +93,12 @@ const InvoiceModule = (() => {
         <div id="photo-placeholder" style="${photoDataUrl ? 'display:none' : 'display:flex'};flex-direction:column;align-items:center;padding:24px 0">
           <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" style="color:var(--green-400)"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"></path><circle cx="12" cy="13" r="4"></circle></svg>
           <div style="font-size:13px;font-weight:500;color:var(--text-2);margin-top:8px">Tap to photograph invoice</div>
-          <div style="font-size:11px;color:var(--text-3);margin-top:3px">Required before saving</div>
+          <div style="font-size:11px;color:var(--text-3);margin-top:3px">${requirePhoto ? 'Required before saving' : 'Optional — auto-reads the details'}</div>
         </div>
         <img id="photo-preview" src="${photoDataUrl || ''}" style="${photoDataUrl ? 'display:block' : 'display:none'};width:100%;border-radius:var(--r-md);max-height:220px;object-fit:cover">
       </label>
+      <!-- OCR scan status -->
+      <div id="scan-status" style="display:none;font-size:12px;margin:6px 0 0;padding:8px 10px;border-radius:var(--r-sm);background:var(--bg-2);color:var(--text-2)"></div>
 
       <div style="display:flex;gap:8px;margin-bottom:4px">
         <label class="secondary-btn" style="flex:1;height:38px;font-size:13px;display:flex;align-items:center;justify-content:center;gap:6px;cursor:pointer" for="inv-photo-camera">
@@ -209,8 +212,89 @@ const InvoiceModule = (() => {
       if (placeholder) placeholder.style.display = 'none';
       const zone = document.getElementById('photo-zone');
       if (zone) zone.style.border = '2px solid var(--green-400)';
+      scanPhoto();   // OCR — auto-read the invoice details
     };
     reader.readAsDataURL(file);
+  }
+
+  // ── OCR: read invoice details from the photo via Claude vision ─
+  function setScanStatus(msg, busy) {
+    const el = document.getElementById('scan-status');
+    if (!el) return;
+    el.style.display = msg ? 'block' : 'none';
+    el.innerHTML = (busy ? '<span class="spinner-dot"></span> ' : '') + escHtml(msg);
+  }
+
+  const SCAN_PROMPT =
+    'You are reading a supplier invoice or receipt image. Extract these fields and reply with ' +
+    'ONLY a JSON object, no prose, no code fences:\n' +
+    '{"supplier": string, "invoiceNo": string, "invoiceDate": "YYYY-MM-DD", ' +
+    '"totalIncGst": number, "gst": number}\n' +
+    'totalIncGst is the grand total payable including GST. gst is the GST/tax amount; ' +
+    'if not shown, set it to null. invoiceDate is the invoice/issue date. ' +
+    'Use null for any field you cannot read. Do not guess amounts.';
+
+  async function scanPhoto() {
+    if (!photoDataUrl) return;
+    const m = /^data:([^;]+);base64,(.+)$/.exec(photoDataUrl);
+    if (!m) return;
+    const [, mediaType, b64] = m;
+    if (!/^image\/(jpeg|png|gif|webp)$/.test(mediaType)) {
+      setScanStatus('Photo saved — auto-read not supported for this image type, enter details manually', false);
+      return;
+    }
+    setScanStatus('Reading invoice details…', true);
+    try {
+      const res = await fetch('/api/scan-invoice', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          messages: [{
+            role: 'user',
+            content: [
+              { type: 'image', source: { type: 'base64', media_type: mediaType, data: b64 } },
+              { type: 'text', text: SCAN_PROMPT },
+            ],
+          }],
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Scan failed');
+      const text = (data.content || []).map(c => c.text || '').join('');
+      const parsed = parseScanJson(text);
+      if (!parsed) throw new Error('Could not parse invoice');
+      const filled = applyScan(parsed);
+      setScanStatus(filled
+        ? 'Read from invoice — please check the details below'
+        : 'Couldn’t read the details — enter them manually', false);
+    } catch (err) {
+      console.warn('[OCR]', err.message);
+      setScanStatus('Couldn’t auto-read this invoice — enter the details manually', false);
+    }
+  }
+
+  function parseScanJson(text) {
+    if (!text) return null;
+    const match = text.match(/\{[\s\S]*\}/);
+    if (!match) return null;
+    try { return JSON.parse(match[0]); } catch { return null; }
+  }
+
+  // Populate the form from the parsed result. Returns true if anything was filled.
+  function applyScan(p) {
+    let filled = false;
+    const setVal = (id, val) => {
+      if (val == null || val === '') return;
+      const el = document.getElementById(id);
+      if (el) { el.value = val; filled = true; }
+    };
+    setVal('inv-supplier', p.supplier);
+    setVal('inv-no', p.invoiceNo);
+    if (/^\d{4}-\d{2}-\d{2}$/.test(p.invoiceDate || '')) setVal('inv-date', p.invoiceDate);
+    if (typeof p.totalIncGst === 'number') setVal('inv-total-gst', p.totalIncGst);
+    if (typeof p.gst === 'number')         setVal('inv-gst', p.gst);
+    calcGST();
+    return filled;
   }
 
   // ── Save ──────────────────────────────────────
@@ -220,7 +304,8 @@ const InvoiceModule = (() => {
     const invoiceNo = document.getElementById('inv-no')?.value?.trim();
     const totalGst  = parseFloat(document.getElementById('inv-total-gst')?.value) || 0;
 
-    if (!photoDataUrl) { App.toast('Please photograph the invoice first', 'warning'); return; }
+    const requirePhoto = Store.getSettings().requirePhoto !== false;
+    if (requirePhoto && !photoDataUrl) { App.toast('Please photograph the invoice first', 'warning'); return; }
     if (!supplier)     { App.toast('Supplier name is required', 'warning'); return; }
     if (!invoiceNo)    { App.toast('Invoice number is required', 'warning'); return; }
     if (!totalGst)     { App.toast('Enter the invoice total', 'warning'); return; }
@@ -261,7 +346,13 @@ const InvoiceModule = (() => {
 
     try {
       const xeroBill = await XeroAPI.createDraftBill(invoiceData);
-      persist({ xeroId: xeroBill?.id || invoiceData.xeroId, status: 'synced', error: null });
+      const xeroId = xeroBill?.id || invoiceData.xeroId;
+      // Append the photo to the Xero bill (best-effort — never blocks the save)
+      if (xeroId && photoDataUrl) {
+        XeroAPI.attachToBill(xeroId, photoDataUrl, invoiceNo)
+          .catch(e => console.warn('[Xero attach]', e.message));
+      }
+      persist({ xeroId, status: 'synced', error: null });
       App.toast(editingId
         ? `${supplier} updated · $${exGst.toFixed(2)} ex GST`
         : `${supplier} · $${exGst.toFixed(2)} ex GST sent to Xero`);

@@ -152,6 +152,17 @@ body {
 .icon-btn.spinning svg { animation: spin 1s linear infinite; }
 @keyframes spin { to { transform: rotate(360deg); } }
 
+/* Inline spinner (e.g. invoice OCR status) */
+.spinner-dot {
+  display: inline-block;
+  width: 11px; height: 11px;
+  border: 2px solid var(--green-400);
+  border-top-color: transparent;
+  border-radius: 50%;
+  vertical-align: -1px;
+  animation: spin 0.7s linear infinite;
+}
+
 /* Pages */
 #page-container {
   flex: 1;
