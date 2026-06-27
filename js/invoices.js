@@ -234,16 +234,22 @@ const InvoiceModule = (() => {
 
     const existing = editingId ? Store.getInvoices().find(i => i.id === editingId) : null;
 
+    // The invoice date drives which week the cost lands in. Fall back to today
+    // (Brisbane) only if the date field was somehow left blank.
+    const invoiceDate = document.getElementById('inv-date')?.value
+      || new Date().toLocaleDateString('sv-SE', { timeZone: 'Australia/Brisbane' });
+
     const invoiceData = {
       supplier,
       invoiceNo,
-      invoiceDate: document.getElementById('inv-date')?.value,
+      invoiceDate,
       totalIncGst: totalGst,
       gst,
       subtotal:    exGst,
       notes:       document.getElementById('inv-notes')?.value || '',
-      // Keep the original entry date when editing so it stays in the same week
-      date:        existing?.date || new Date().toLocaleDateString('sv-SE', { timeZone: 'Australia/Brisbane' }),
+      // Cost the invoice into the week of its invoice date, not the entry date,
+      // so it's always reported in the period it belongs to.
+      date:        invoiceDate,
       photoDataUrl,
       // Pass the existing Xero id so the proxy updates that bill instead of creating one
       xeroId:      existing?.xeroId,
