@@ -457,6 +457,10 @@ const InvoiceModule = (() => {
     return String(s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
   }
 
-  return { init, calcGST, save, startEdit, cancelEdit, updateSaveButtonLabel };
+  // Re-render the week's invoice list (used by live sync when another device
+  // adds/edits an invoice).
+  function reloadList() { if (document.getElementById('invoice-list')) loadWeekInvoices(); }
+
+  return { init, calcGST, save, startEdit, cancelEdit, updateSaveButtonLabel, reloadList };
 
 })();

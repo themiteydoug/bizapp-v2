@@ -74,6 +74,15 @@ const App = (() => {
     }
   }
 
+  // Called by Sync when the shared data changed — re-render the current view
+  // from the freshly-merged local cache so updates from other devices show.
+  function onDataChanged() {
+    try {
+      if (activePage === 'invoices')  InvoiceModule.reloadList?.();
+      if (activePage === 'dashboard') Dashboard.refresh?.();
+    } catch (e) { console.warn('onDataChanged', e); }
+  }
+
   // ── Settings modal ────────────────────────────
 
   function refreshSettings() {
@@ -351,6 +360,9 @@ const App = (() => {
 
     await Dashboard.init();
 
+    // Start live cross-device sync (no-op if KV isn't configured).
+    Sync.init();
+
     setTimeout(() => Dashboard.checkUpcomingHolidays(), 2000);
 
     if (CONFIG.FEATURES.DEMO_MODE) {
@@ -368,6 +380,6 @@ const App = (() => {
     boot();
   }
 
-  return { nav, toast, openSettings, refreshSettings, applyRoleUI, getWeek, setWeek };
+  return { nav, toast, openSettings, refreshSettings, applyRoleUI, getWeek, setWeek, onDataChanged };
 
 })();

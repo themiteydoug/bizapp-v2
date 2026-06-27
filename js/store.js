@@ -126,8 +126,16 @@ const Store = (() => {
     ]);
   }
 
+  // Small helper to mirror a write to the shared store when Sync is present.
+  function mirrorItem(coll, item) { try { window.Sync && Sync.pushItem(coll, item); } catch {} }
+  function mirrorKey(key, value)  { try { window.Sync && Sync.pushKey(key, value); } catch {} }
+
+  // Collision-resistant ids (shared across devices now).
+  function uid(prefix) { return prefix + Date.now() + '_' + Math.random().toString(36).slice(2, 7); }
+
   function saveStaff(staff) {
     localStorage.setItem(KEYS.STAFF, JSON.stringify(staff));
+    mirrorKey('staff', staff);
   }
 
   function updateStaffMember(id, updates) {
@@ -151,13 +159,14 @@ const Store = (() => {
   function saveInvoice(invoice) {
     const all = JSON.parse(localStorage.getItem(KEYS.INVOICES) || '[]');
     const inv = {
-      id: 'inv_' + Date.now(),
+      id: uid('inv_'),
       createdAt: new Date().toISOString(),
       status: 'draft',
       ...invoice,
     };
     all.unshift(inv);
     localStorage.setItem(KEYS.INVOICES, JSON.stringify(all));
+    mirrorItem('invoices', inv);
     return inv;
   }
 
@@ -167,6 +176,7 @@ const Store = (() => {
     if (idx >= 0) {
       all[idx] = { ...all[idx], ...updates };
       localStorage.setItem(KEYS.INVOICES, JSON.stringify(all));
+      mirrorItem('invoices', all[idx]);
     }
   }
 
@@ -179,12 +189,13 @@ const Store = (() => {
   function saveCashRec(rec) {
     const all = getCashRecs();
     const r = {
-      id: 'cash_' + Date.now(),
+      id: uid('cash_'),
       createdAt: new Date().toISOString(),
       ...rec,
     };
     all.unshift(r);
     localStorage.setItem(KEYS.CASH_RECS, JSON.stringify(all));
+    mirrorItem('cashRecs', r);
     return r;
   }
 
@@ -196,14 +207,16 @@ const Store = (() => {
 
   function logTsPush(weekStart, weekEnd, result) {
     const all = getTsPushes();
-    all.unshift({
-      id: 'ts_' + Date.now(),
+    const rec = {
+      id: uid('ts_'),
       weekStart,
       weekEnd,
       pushedAt: new Date().toISOString(),
       result,
-    });
+    };
+    all.unshift(rec);
     localStorage.setItem(KEYS.TS_PUSHES, JSON.stringify(all));
+    mirrorItem('tsPushes', rec);
   }
 
   function getLastPushForWeek(weekStart) {
@@ -222,6 +235,7 @@ const Store = (() => {
     if (hours == null || isNaN(hours)) delete all[key];   // clear override
     else all[key] = Math.round(hours * 100) / 100;
     localStorage.setItem(KEYS.TS_ADJUST, JSON.stringify(all));
+    mirrorKey('tsAdjustments', all);
   }
 
   // ── Xero tokens ────────────────────────────────
@@ -257,6 +271,7 @@ const Store = (() => {
     const s = getSettings();
     s[key] = value;
     localStorage.setItem(KEYS.SETTINGS, JSON.stringify(s));
+    mirrorKey('settings', s);
   }
 
   return {

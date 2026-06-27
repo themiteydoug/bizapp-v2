@@ -29,6 +29,31 @@ else hangs off that.
 
 ---
 
+## Database strategy — revisit before scaling
+
+The first live-data backend is **Vercel KV / Upstash Redis** (key-value) with the
+app polling every ~15s — chosen for speed of delivery. It's near-live, not
+instant. Before going to a real product, reassess the datastore:
+
+- **Instant updates feel more professional.** Polling has a visible lag; a
+  realtime database pushes changes the moment they happen. For a paid product,
+  instant is the right bar.
+- **Recommended target: Postgres with realtime** — e.g. **Supabase** (Postgres +
+  realtime subscriptions + auth/SSO in one), or **Neon** (Postgres) paired with a
+  realtime layer. Postgres also gives proper relational structure for
+  multi-business data, reporting, and migrations — things Redis isn't built for.
+- **Other contenders seen in Vercel's Marketplace:** Neon (serverless Postgres),
+  Supabase, official Redis, Convex (reactive/realtime), Nile (Postgres for B2B
+  multi-tenant). Convex and Supabase are the most "instant" out of the box.
+- **Migration path:** the app already funnels all reads/writes through a small
+  `/api/data` layer and `js/sync.js`. Swapping Redis-polling for a realtime
+  Postgres backend means rewriting those two pieces, not the whole app — the rest
+  of the code keeps using `Store` as-is.
+
+> Bottom line: KV/Redis polling is the pragmatic start for one business. When you
+> commit to selling it, move to **realtime Postgres (Supabase/Neon/Convex)** for
+> instant updates + the multi-tenant foundation below.
+
 ## The foundational step: multi-tenancy
 
 To support more than one business you need a place to store *per-business* data
