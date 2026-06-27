@@ -479,11 +479,13 @@ const XeroAPI = (() => {
       if (!pi) return ts;                       // unmatched → keep Square cost
 
       if (pi.salaried) {
-        // Salaried managers: keep their Square-derived cost (clocked hours ×
-        // hourly rate) so the labour figure matches Square. Flag them so the
-        // Xero push skips them (no penalty recalc).
+        // Salaried staff who clocked into Square that week are counted at their
+        // true weekly cost (annual salary / 52) — included in total wages, but
+        // NOT pushed to Xero (their pay is finalised in Xero directly). Salaried
+        // staff with no Square timesheet that week simply aren't in this list.
         return { ...ts, salaried: true, xeroEmployeeId: pi.xeroEmployeeId,
-                 weeklySalary: pi.weeklyCost, awardSource: 'square' };
+                 estimatedCost: pi.weeklyCost ?? ts.estimatedCost,
+                 weeklySalary: pi.weeklyCost, awardSource: 'salary' };
       }
       if (pi.baseRate == null) return ts;
 
