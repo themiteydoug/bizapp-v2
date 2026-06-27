@@ -243,24 +243,6 @@ const InvoiceModule = (() => {
     const all = Store.getInvoices();
     const invoices = all.filter(inv => inv.date >= currentWeekStart && inv.date <= weekEnd);
 
-    // GST summary
-    const gstSummary = document.getElementById('gst-summary');
-    if (gstSummary) {
-      if (!invoices.length) {
-        gstSummary.innerHTML = '<div class="empty-state">No invoices this week</div>';
-      } else {
-        const totalExGst = invoices.reduce((s, i) => s + (i.subtotal || 0), 0);
-        const totalGst   = invoices.reduce((s, i) => s + (i.gst || 0), 0);
-        const totalInc   = invoices.reduce((s, i) => s + (i.totalIncGst || 0), 0);
-        gstSummary.innerHTML = `
-          <div class="drawer-row"><span class="drawer-label">Total ex GST</span><span style="font-family:var(--mono);font-weight:600">$${totalExGst.toFixed(2)}</span></div>
-          <div class="drawer-row"><span class="drawer-label">Total GST</span><span style="font-family:var(--mono)">$${totalGst.toFixed(2)}</span></div>
-          <div class="cost-divider"></div>
-          <div class="drawer-row"><span class="drawer-label" style="font-weight:600">Total inc GST</span><span style="font-family:var(--mono);font-weight:600;color:var(--green-600)">$${totalInc.toFixed(2)}</span></div>
-        `;
-      }
-    }
-
     const list = document.getElementById('invoice-list');
     if (!list) return;
     if (!invoices.length) {
