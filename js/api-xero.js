@@ -45,6 +45,17 @@ const XeroAPI = (() => {
     return String(s || '').toLowerCase().replace(/\s+/g, ' ').trim();
   }
 
+  // Match a person to their Xero pay info by email → exact name → unique prefix
+  // (handles truncated names like "Jonah McW" vs "Jonah McWhirter").
+  function matchPayInfo(info, name, email) {
+    const e = (email || '').toLowerCase();
+    if (e && info.byEmail?.[e]) return info.byEmail[e];
+    const n = normalizeName(name);
+    if (info.byName[n]) return info.byName[n];
+    const cands = Object.keys(info.byName).filter(k => k.startsWith(n) || n.startsWith(k));
+    return cands.length === 1 ? info.byName[cands[0]] : null;
+  }
+
   // ── Token helpers ─────────────────────────────
 
   function getAccessToken() {
@@ -465,6 +476,37 @@ const XeroAPI = (() => {
   }
 
   /**
+   * Derived classification for a staff member, sourced entirely from Xero:
+   * employment type (salaried/casual), award level, base rate / weekly salary,
+   * and the earnings rate each day type maps to. Returns null if not matched
+   * or Xero isn't connected (caller falls back to manual fields).
+   */
+  async function getStaffClassification(name, email) {
+    if (CONFIG.FEATURES.DEMO_MODE || !isConnected()) return null;
+    let info;
+    try { info = await getEmployeePayInfo(); } catch (e) { return null; }
+    const pi = matchPayInfo(info, name, email);
+    if (!pi) return null;
+
+    const out = {
+      matched: true, xeroName: pi.name, xeroEmployeeId: pi.xeroEmployeeId,
+      salaried: pi.salaried, level: pi.level || 1,
+      employmentType: pi.salaried ? 'salaried' : 'casual',
+      baseRate: pi.baseRate, weeklyCost: pi.weeklyCost,
+    };
+    if (!pi.salaried) {
+      const lvl = pi.level || 1;
+      out.rates = {
+        weekday:        awardRule('casual', lvl, 'weekday').rate,
+        saturday:       awardRule('casual', lvl, 'saturday').rate,
+        sunday:         awardRule('casual', lvl, 'sunday').rate,
+        publicHoliday:  awardRule('casual', lvl, 'public_holiday').rate,
+      };
+    }
+    return out;
+  }
+
+  /**
    * Recompute each timesheet's cost from Xero base rates × Fast Food Award
    * day type — used for the Xero push. The COST stays as Square's figure, which
    * already applies the award penalty rates (and matches Xero within a dollar
@@ -478,20 +520,8 @@ const XeroAPI = (() => {
     catch (e) { console.warn('[Xero award] pay info failed:', e.message); return timesheets; }
 
     const settings = Store.getSettings();
-    const matchPi = ts => {
-      const email = (ts.email || '').toLowerCase();
-      if (email && info.byEmail?.[email]) return info.byEmail[email];
-      const n = normalizeName(ts.name);
-      if (info.byName[n]) return info.byName[n];
-      // Fuzzy fallback for truncated/abbreviated names (e.g. "jonah mcw" vs
-      // "jonah mcwhirter"). Only accept a UNIQUE prefix match so the two Jacks
-      // (Kennedy/Ferguson) never cross-match.
-      const cands = Object.keys(info.byName).filter(k => k.startsWith(n) || n.startsWith(k));
-      return cands.length === 1 ? info.byName[cands[0]] : null;
-    };
-
     const out = timesheets.map(ts => {
-      const pi = matchPi(ts);
+      const pi = matchPayInfo(info, ts.name, ts.email);
       if (!pi) return ts;   // unmatched → keep Square cost, no push annotation
 
       if (pi.salaried) {
@@ -719,6 +749,7 @@ const XeroAPI = (() => {
     getPayItemsWithIds,
     inspectPayroll,
     getEmployeePayInfo,
+    getStaffClassification,
     applyAwardRates,
     pushTimesheets,
     getOverheadAverage,

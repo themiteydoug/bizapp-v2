@@ -156,67 +156,9 @@ const StaffModule = (() => {
           </div>
         </div>
 
-        <div class="section-label">Classification</div>
-        <div class="field-row-2" style="margin-bottom:12px">
-          <div class="field-group">
-            <label class="field-label">Employment type</label>
-            <select class="field-input" onchange="StaffModule.updateField('${staffId}','employmentType',this.value)">
-              <option value="casual" ${s.employmentType==='casual'?'selected':''}>Casual</option>
-              <option value="part_time" ${s.employmentType==='part_time'?'selected':''}>Part-time</option>
-            </select>
-          </div>
-          <div class="field-group">
-            <label class="field-label">Award level</label>
-            <select class="field-input" onchange="StaffModule.updateField('${staffId}','awardLevel',parseInt(this.value))">
-              <option value="1" ${s.awardLevel===1?'selected':''}>Level 1</option>
-              <option value="2" ${s.awardLevel===2?'selected':''}>Level 2</option>
-              <option value="3" ${s.awardLevel===3?'selected':''}>Level 3</option>
-            </select>
-          </div>
-        </div>
-
-        <div class="section-label">Xero payroll mapping</div>
-
-        <div class="field-group">
-          <label class="field-label">
-            <span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:var(--green-400);margin-right:5px;vertical-align:middle"></span>
-            Mon–Fri · Ordinary rate
-          </label>
-          ${makeSelect('payRates.weekday', s.payRates.weekday)}
-        </div>
-
-        ${isLevel1 ? `
-        <div class="field-group">
-          <label class="field-label">
-            <span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:var(--amber-500);margin-right:5px;vertical-align:middle"></span>
-            Saturday &amp; Sunday · Same penalty rate (Level 1)
-          </label>
-          ${makeSelect('payRates.weekend', s.payRates.weekend)}
-          <div style="font-size:11px;color:var(--text-3);margin-top:4px">Fast Food Award: Level 1 Sat &amp; Sun use the same rate</div>
-        </div>
-        ` : `
-        <div class="field-group">
-          <label class="field-label">
-            <span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:var(--amber-500);margin-right:5px;vertical-align:middle"></span>
-            Saturday penalty rate
-          </label>
-          ${makeSelect('payRates.saturday', s.payRates.saturday)}
-        </div>
-        <div class="field-group">
-          <label class="field-label">
-            <span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:var(--coral-500);margin-right:5px;vertical-align:middle"></span>
-            Sunday penalty rate (Level 2+)
-          </label>
-          ${makeSelect('payRates.sunday', s.payRates.sunday)}
-        </div>
-        `}
-
-        <div class="field-group">
-          <label class="field-label">
-            <span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:var(--red-500);margin-right:5px;vertical-align:middle"></span>
-            QLD Public holiday rate
-          </label>
-          ${makeSelect('payRates.publicHol', s.payRates.publicHol)}
+        <div class="section-label">Classification &amp; Xero mapping</div>
+        <div id="staff-xero-classification">
+          <div class="empty-state">Loading from Xero…</div>
         </div>
 
         <div class="section-label">Notes</div>
@@ -231,7 +173,58 @@ const StaffModule = (() => {
       </div>
     `;
     modal.classList.add('open');
+    loadClassification(s);
   }
+
+  // Populate the classification + Xero mapping straight from Xero (no manual entry)
+  async function loadClassification(s) {
+    const el = document.getElementById('staff-xero-classification');
+    if (!el) return;
+    let c = null;
+    try { c = await XeroAPI.getStaffClassification(s.name, s.email); }
+    catch (e) { /* fall through to not-matched */ }
+
+    if (!c) {
+      el.innerHTML = `<div class="empty-state">
+        ${XeroAPI.isConnected()
+          ? 'No Xero match for this name. Check the spelling matches Xero.'
+          : 'Connect Xero in Settings to auto-fill classification.'}
+      </div>`;
+      return;
+    }
+
+    const dot = col => `<span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:${col};margin-right:6px;vertical-align:middle"></span>`;
+    const rowMap = (label, col, rate) => `
+      <div class="drawer-row">
+        <span class="drawer-label">${dot(col)}${label}</span>
+        <span class="drawer-val" style="font-weight:600">${rate}</span>
+      </div>`;
+
+    if (c.salaried) {
+      el.innerHTML = `
+        <div class="drawer-row"><span class="drawer-label">Employment type</span><span class="drawer-val" style="font-weight:600">Salaried</span></div>
+        <div class="drawer-row"><span class="drawer-label">Weekly cost</span><span class="drawer-val">$${(c.weeklyCost||0).toFixed(2)}</span></div>
+        <div style="font-size:12px;color:var(--text-3);margin-top:8px">Salaried — pay is finalised directly in Xero, so timesheets are not pushed from here.</div>
+        <div style="font-size:11px;color:var(--text-3);margin-top:6px">Derived automatically from Xero · ${esc(c.xeroName)}</div>`;
+      return;
+    }
+
+    el.innerHTML = `
+      <div class="field-row-2" style="margin-bottom:10px">
+        <div class="drawer-row"><span class="drawer-label">Type</span><span class="drawer-val" style="font-weight:600">Casual</span></div>
+        <div class="drawer-row"><span class="drawer-label">Award level</span><span class="drawer-val" style="font-weight:600">Level ${c.level}</span></div>
+      </div>
+      <div class="drawer-row"><span class="drawer-label">Base rate</span><span class="drawer-val">$${(c.baseRate||0).toFixed(2)}/hr</span></div>
+      <div class="cost-divider"></div>
+      ${rowMap('Mon–Fri', 'var(--green-400)', c.rates.weekday)}
+      ${c.level <= 1
+        ? rowMap('Sat &amp; Sun', 'var(--amber-500)', c.rates.saturday)
+        : rowMap('Saturday', 'var(--amber-500)', c.rates.saturday) + rowMap('Sunday', 'var(--coral-500)', c.rates.sunday)}
+      ${rowMap('Public holiday', 'var(--red-500)', c.rates.publicHoliday)}
+      <div style="font-size:11px;color:var(--text-3);margin-top:8px">Derived automatically from Xero · ${esc(c.xeroName)} · no manual mapping needed</div>`;
+  }
+
+  function esc(s) { return String(s || '').replace(/[&<>]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c])); }
 
   function updateRate(staffId, dotPath, value) {
     const s = Store.getStaff().find(m => m.id === staffId);
