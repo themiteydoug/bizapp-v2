@@ -272,7 +272,11 @@ const InvoiceModule = (() => {
       let data;
       try { data = JSON.parse(raw); }
       catch { throw new Error(`Server returned ${res.status}: ${raw.slice(0, 120)}`); }
-      if (!res.ok) throw new Error(data.error || `Scan failed (HTTP ${res.status})`);
+      if (!res.ok) {
+        let m = data.error || `Scan failed (HTTP ${res.status})`;
+        if (data._debug?.origin) m += ` (origin "${data._debug.origin}" vs APP_ORIGIN "${data._debug.allowed}")`;
+        throw new Error(m);
+      }
       const text = (data.content || []).map(c => c.text || '').join('');
       const parsed = parseScanJson(text);
       if (!parsed) throw new Error('AI did not return invoice data');

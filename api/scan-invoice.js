@@ -27,9 +27,11 @@ module.exports = async (req, res) => {
     return res.status(405).json({ error: 'Method not allowed' });
   }
 
-  // Only allow requests from our own origin (when APP_ORIGIN is configured)
-  if (allowed && origin && origin !== allowed) {
-    return res.status(403).json({ error: 'Forbidden' });
+  // Only allow requests from our own origin (when APP_ORIGIN is configured).
+  // Normalise trailing slash / case so a stray slash in APP_ORIGIN doesn't 403.
+  const norm = s => (s || '').replace(/\/+$/, '').toLowerCase();
+  if (allowed && origin && norm(origin) !== norm(allowed)) {
+    return res.status(403).json({ error: 'Forbidden', _debug: { origin, allowed } });
   }
 
   const apiKey = process.env.ANTHROPIC_API_KEY;
