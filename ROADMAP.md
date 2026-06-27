@@ -150,6 +150,17 @@ Once businesses and a database exist, branding becomes a simple feature:
 - **PIN session length.** Currently re-prompts on every full app close (you chose
   this). Could become a per-business setting (e.g. "stay signed in 7/30 days")
   once accounts exist.
+- **"Send invoices to Xero" as a setup question + server-stored setting.** Some
+  owners (like Spotted Cod) already auto-forward bills to Xero by email and must
+  NOT have the app create duplicate drafts; others will want the app to push them.
+  Make this an explicit **question in the setup wizard**, owned by the **manager**.
+  Today it's a per-device localStorage flag (now hidden from staff), so it does
+  **not** sync across devices — meaning a staff member entering invoices on their
+  own device could still push to Xero against the manager's choice. The fix is to
+  store this (and OCR on/off) **server-side per business** so the manager sets it
+  once and every device — staff included — obeys it. Depends on the database/
+  multi-tenancy step. *Interim option without the backend: a deployment-level
+  default via an env var so all devices share the owner's choice.*
 - **PNG app icon polish.** Done for the fish; for a product, auto-generate from
   each business's uploaded logo (see #4).
 - **Subscription / billing** (if selling): a Stripe-style plan layer — out of
