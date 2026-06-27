@@ -169,14 +169,24 @@ const App = (() => {
       <div class="settings-group">
         <div class="settings-group-label">Invoices</div>
         <div class="settings-item">
-          <span class="settings-item-label">Require invoice photo</span>
+          <span class="settings-item-label">Send invoices to Xero</span>
           <label style="display:flex;align-items:center;gap:8px;cursor:pointer">
-            <input type="checkbox" id="require-photo-toggle" ${s.requirePhoto !== false ? 'checked' : ''}>
-            <span class="settings-item-value">${s.requirePhoto !== false ? 'Required' : 'Optional'}</span>
+            <input type="checkbox" id="send-xero-toggle" ${s.sendToXero !== false ? 'checked' : ''}>
+            <span class="settings-item-value">${s.sendToXero !== false ? 'On' : 'Off'}</span>
           </label>
         </div>
         <div class="settings-item" style="font-size:11px;color:var(--text-3);line-height:1.5">
-          Turn off if invoices arrive by email. Photos are still read automatically and attached to the Xero bill when added.
+          Turn off if your bills already reach Xero another way (e.g. email forwarding) so the app doesn't create duplicate drafts. Invoices are still recorded here for cost reporting.
+        </div>
+        <div class="settings-item">
+          <span class="settings-item-label">Auto-read invoice details</span>
+          <label style="display:flex;align-items:center;gap:8px;cursor:pointer">
+            <input type="checkbox" id="auto-ocr-toggle" ${s.autoOcr !== false ? 'checked' : ''}>
+            <span class="settings-item-value">${s.autoOcr !== false ? 'On' : 'Off'}</span>
+          </label>
+        </div>
+        <div class="settings-item" style="font-size:11px;color:var(--text-3);line-height:1.5">
+          Reads supplier, total and GST from a photo automatically. Uses a paid AI service (a fraction of a cent per scan). Turn off to type details in manually.
         </div>
       </div>
 
@@ -228,10 +238,16 @@ const App = (() => {
         Store.saveSetting('ekkaBrisbane', this.checked);
         App.toast('Ekka holiday ' + (this.checked ? 'enabled' : 'disabled'));
       });
-    body.querySelector('#require-photo-toggle')
+    body.querySelector('#send-xero-toggle')
       ?.addEventListener('change', function () {
-        Store.saveSetting('requirePhoto', this.checked);
-        App.toast('Invoice photo ' + (this.checked ? 'required' : 'optional'));
+        Store.saveSetting('sendToXero', this.checked);
+        App.toast('Send invoices to Xero ' + (this.checked ? 'on' : 'off'));
+        refreshSettings();
+      });
+    body.querySelector('#auto-ocr-toggle')
+      ?.addEventListener('change', function () {
+        Store.saveSetting('autoOcr', this.checked);
+        App.toast('Auto-read invoices ' + (this.checked ? 'on' : 'off'));
         refreshSettings();
       });
     body.querySelector('[data-action="inspect-xero"]')

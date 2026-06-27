@@ -66,7 +66,7 @@ const InvoiceModule = (() => {
     if (!container) return;
     const suppliers = getPastSuppliers();
     const todayBrisbane = new Date().toLocaleDateString('sv-SE', { timeZone: 'Australia/Brisbane' });
-    const requirePhoto = Store.getSettings().requirePhoto !== false;   // default: required
+    const sendToXero = Store.getSettings().sendToXero !== false;   // default: on
 
     // When editing, pre-fill from the existing invoice
     const editing = editingId ? Store.getInvoices().find(i => i.id === editingId) : null;
@@ -82,7 +82,7 @@ const InvoiceModule = (() => {
 
     container.innerHTML = `
       <!-- Photo capture -->
-      <div class="section-label">Invoice photo ${requirePhoto ? '<span style="color:var(--red-500)">*</span>' : '<span style="color:var(--text-3);font-weight:400">(optional)</span>'}</div>
+      <div class="section-label">Invoice photo <span style="color:var(--text-3);font-weight:400">(optional)</span></div>
 
       <!-- File inputs — activated via <label for=""> so iOS camera opens reliably -->
       <input type="file" id="inv-photo-camera"  accept="image/*" capture="environment" style="display:none">
@@ -93,7 +93,7 @@ const InvoiceModule = (() => {
         <div id="photo-placeholder" style="${photoDataUrl ? 'display:none' : 'display:flex'};flex-direction:column;align-items:center;padding:24px 0">
           <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" style="color:var(--green-400)"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"></path><circle cx="12" cy="13" r="4"></circle></svg>
           <div style="font-size:13px;font-weight:500;color:var(--text-2);margin-top:8px">Tap to photograph invoice</div>
-          <div style="font-size:11px;color:var(--text-3);margin-top:3px">${requirePhoto ? 'Required before saving' : 'Optional — auto-reads the details'}</div>
+          <div style="font-size:11px;color:var(--text-3);margin-top:3px">Optional — auto-reads the details when added</div>
         </div>
         <img id="photo-preview" src="${photoDataUrl || ''}" style="${photoDataUrl ? 'display:block' : 'display:none'};width:100%;border-radius:var(--r-md);max-height:220px;object-fit:cover">
       </label>
@@ -161,7 +161,7 @@ const InvoiceModule = (() => {
 
       <button class="primary-btn full-btn" id="save-invoice-btn">
         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="22" y1="2" x2="11" y2="13"></line><polygon points="22 2 15 22 11 13 2 9 22 2"></polygon></svg>
-        ${editing ? 'Update invoice' : 'Save &amp; send to Xero'}
+        ${editing ? 'Update invoice' : (sendToXero ? 'Save &amp; send to Xero' : 'Save invoice')}
       </button>
       ${editing ? `<button class="secondary-btn full-btn" id="cancel-edit-btn" style="margin-top:8px">Cancel edit</button>` : ''}
     `;
@@ -212,7 +212,7 @@ const InvoiceModule = (() => {
       if (placeholder) placeholder.style.display = 'none';
       const zone = document.getElementById('photo-zone');
       if (zone) zone.style.border = '2px solid var(--green-400)';
-      scanPhoto();   // OCR — auto-read the invoice details
+      if (Store.getSettings().autoOcr !== false) scanPhoto();   // OCR — auto-read details (default on)
     };
     reader.readAsDataURL(file);
   }
@@ -304,8 +304,6 @@ const InvoiceModule = (() => {
     const invoiceNo = document.getElementById('inv-no')?.value?.trim();
     const totalGst  = parseFloat(document.getElementById('inv-total-gst')?.value) || 0;
 
-    const requirePhoto = Store.getSettings().requirePhoto !== false;
-    if (requirePhoto && !photoDataUrl) { App.toast('Please photograph the invoice first', 'warning'); return; }
     if (!supplier)     { App.toast('Supplier name is required', 'warning'); return; }
     if (!invoiceNo)    { App.toast('Invoice number is required', 'warning'); return; }
     if (!totalGst)     { App.toast('Enter the invoice total', 'warning'); return; }
@@ -344,18 +342,29 @@ const InvoiceModule = (() => {
       ? Store.updateInvoice(editingId, { ...invoiceData, ...extra })
       : Store.saveInvoice({ ...invoiceData, ...extra });
 
+    // When off, the bill already reaches Xero another way (e.g. email forwarding).
+    // We still record it locally so it counts toward COGS/cost reporting.
+    const sendToXero = Store.getSettings().sendToXero !== false;
+
     try {
-      const xeroBill = await XeroAPI.createDraftBill(invoiceData);
-      const xeroId = xeroBill?.id || invoiceData.xeroId;
-      // Append the photo to the Xero bill (best-effort — never blocks the save)
-      if (xeroId && photoDataUrl) {
-        XeroAPI.attachToBill(xeroId, photoDataUrl, invoiceNo)
-          .catch(e => console.warn('[Xero attach]', e.message));
+      if (!sendToXero) {
+        persist({ status: 'local', error: null });
+        App.toast(editingId
+          ? `${supplier} updated · $${exGst.toFixed(2)} ex GST`
+          : `${supplier} · $${exGst.toFixed(2)} ex GST saved`);
+      } else {
+        const xeroBill = await XeroAPI.createDraftBill(invoiceData);
+        const xeroId = xeroBill?.id || invoiceData.xeroId;
+        // Append the photo to the Xero bill (best-effort — never blocks the save)
+        if (xeroId && photoDataUrl) {
+          XeroAPI.attachToBill(xeroId, photoDataUrl, invoiceNo)
+            .catch(e => console.warn('[Xero attach]', e.message));
+        }
+        persist({ xeroId, status: 'synced', error: null });
+        App.toast(editingId
+          ? `${supplier} updated · $${exGst.toFixed(2)} ex GST`
+          : `${supplier} · $${exGst.toFixed(2)} ex GST sent to Xero`);
       }
-      persist({ xeroId, status: 'synced', error: null });
-      App.toast(editingId
-        ? `${supplier} updated · $${exGst.toFixed(2)} ex GST`
-        : `${supplier} · $${exGst.toFixed(2)} ex GST sent to Xero`);
       editingId = null;
       resetForm();
       loadWeekInvoices();
@@ -366,10 +375,7 @@ const InvoiceModule = (() => {
       resetForm();
       loadWeekInvoices();
     } finally {
-      if (btn) {
-        btn.disabled = false;
-        btn.innerHTML = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="22" y1="2" x2="11" y2="13"></line><polygon points="22 2 15 22 11 13 2 9 22 2"></polygon></svg> Save &amp; send to Xero';
-      }
+      if (btn) { btn.disabled = false; btn.textContent = 'Save'; }
     }
   }
 
@@ -405,8 +411,8 @@ const InvoiceModule = (() => {
         </div>
         <div class="invoice-right">
           <div class="invoice-amount">$${(inv.totalIncGst || inv.total || 0).toFixed(2)}</div>
-          <span class="invoice-status ${inv.status === 'synced' ? 'status-synced' : 'status-draft'}">
-            ${inv.status === 'synced' ? 'In Xero' : 'Pending'}
+          <span class="invoice-status ${inv.status === 'pending' ? 'status-draft' : 'status-synced'}">
+            ${inv.status === 'synced' ? 'In Xero' : inv.status === 'local' ? 'Saved' : 'Pending'}
           </span>
         </div>
       </div>
