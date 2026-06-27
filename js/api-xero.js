@@ -338,7 +338,9 @@ const XeroAPI = (() => {
     // template earnings line OR (if not overridden) on the ordinary earnings
     // rate itself — try both. Capture the first raw detail for structure check.
     const empList = (await proxyFetch('/Employees', {}, true)).Employees || [];
-    let rawEmployeeSample = null;
+    // Capture one full raw detail for an hourly and a salaried employee so we
+    // can see the exact field that marks casual/PT/FT and where salary lives.
+    let rawHourly = null, rawSalaried = null;
     // Fetch detail SEQUENTIALLY — Xero caps concurrency (~5), and firing all
     // at once silently drops the overflow (leaving base rates blank).
     const employees = [];
@@ -348,7 +350,6 @@ const XeroAPI = (() => {
       try {
         const detail = (await proxyFetch(`/Employees/${e.EmployeeID}`, {}, true)).Employees?.[0] || null;
         if (detail) {
-          if (!rawEmployeeSample) rawEmployeeSample = detail;
           basis = detail.EmploymentBasis || basis;
           const ordId = detail.OrdinaryEarningsRateID;
           const lines = detail.PayTemplate?.EarningsLines || [];
@@ -356,31 +357,29 @@ const XeroAPI = (() => {
           baseRate     = ordLine?.RatePerUnit ?? rateById[ordId]?.ratePerUnit ?? null;
           ordinaryName = rateById[ordId]?.name
             ?? (ordLine && rateById[ordLine.EarningsRateID]?.name) ?? null;
+          if (baseRate != null && !rawHourly)   rawHourly   = detail;
+          if (baseRate == null && !rawSalaried) rawSalaried = detail;
         }
       } catch (err) {
         console.warn('[Xero payroll] detail failed for', e.EmployeeID, err.message);
       }
+      // Hourly staff (have a base rate) get timesheets pushed; salaried don't.
+      const payType = baseRate != null ? 'Hourly · push' : 'Salaried · no push';
       employees.push({
         name:  `${e.FirstName || ''} ${e.LastName || ''}`.trim() || e.EmployeeID,
         id:    e.EmployeeID,
-        basis, baseRate, ordinaryName,
+        basis, baseRate, ordinaryName, payType,
       });
     }
 
-    // Trimmed raw samples so the exact field names/values are visible on screen
     const rawRate = (payData.PayItems?.EarningsRates || [])[0] || null;
-    const rawEmp  = rawEmployeeSample ? {
-      EmployeeID:             rawEmployeeSample.EmployeeID,
-      Name:                   `${rawEmployeeSample.FirstName || ''} ${rawEmployeeSample.LastName || ''}`.trim(),
-      EmploymentBasis:        rawEmployeeSample.EmploymentBasis,
-      OrdinaryEarningsRateID: rawEmployeeSample.OrdinaryEarningsRateID,
-      EarningsLines:          rawEmployeeSample.PayTemplate?.EarningsLines,
-    } : null;
+    const rawEmp  = { hourly: rawHourly, salaried: rawSalaried };
 
     console.log('[Xero payroll] earnings rates:', earningsRates);
     console.log('[Xero payroll] employees:', employees);
     console.log('[Xero payroll] RAW sample rate:', rawRate);
-    console.log('[Xero payroll] RAW sample employee:', rawEmployeeSample);
+    console.log('[Xero payroll] RAW hourly employee:', rawHourly);
+    console.log('[Xero payroll] RAW salaried employee:', rawSalaried);
     return { earningsRates, employees, raw: { rate: rawRate, employee: rawEmp } };
   }
 
