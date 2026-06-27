@@ -1,68 +1,46 @@
 /**
- * BizOps · Anthropic API Proxy
- * Vercel Edge Function — /api/scan-invoice
+ * BizOps · Anthropic API Proxy  (/api/scan-invoice)
+ * Vercel Node serverless function — keeps the Anthropic key server-side.
  *
- * Keeps your Anthropic API key server-side and never exposed in the browser.
- * Vercel runs this automatically when the app calls /api/scan-invoice
+ * Reads an invoice image (passed as Claude vision messages) and returns the
+ * model response. Runs as a standard Node function (not Edge) so it can accept
+ * a full-size image upload without hitting Edge's tight request-body limit.
  *
  * Setup:
- *   1. In Vercel dashboard → your project → Settings → Environment Variables
- *   2. Add:  ANTHROPIC_API_KEY = sk-ant-...
- *   3. Redeploy — done. The key never touches the browser.
+ *   Vercel → project → Settings → Environment Variables
+ *   Add ANTHROPIC_API_KEY = sk-ant-...   then redeploy.
  */
 
-export const config = {
-  runtime: 'edge',
-};
-
-export default async function handler(req) {
-  const origin = req.headers.get('origin') || '';
+module.exports = async (req, res) => {
+  const origin  = req.headers.origin || '';
   const allowed = process.env.APP_ORIGIN || '';
 
-  const corsHeaders = {
-    'Content-Type': 'application/json',
-    'Access-Control-Allow-Origin': allowed || '*',
-  };
+  res.setHeader('Access-Control-Allow-Origin', allowed || '*');
 
   if (req.method === 'OPTIONS') {
-    return new Response(null, {
-      status: 204,
-      headers: {
-        ...corsHeaders,
-        'Access-Control-Allow-Methods': 'POST, OPTIONS',
-        'Access-Control-Allow-Headers': 'Content-Type',
-      },
-    });
+    res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+    return res.status(204).end();
   }
 
-  // Only allow POST
   if (req.method !== 'POST') {
-    return new Response(JSON.stringify({ error: 'Method not allowed' }), {
-      status: 405,
-      headers: corsHeaders,
-    });
+    return res.status(405).json({ error: 'Method not allowed' });
   }
 
-  // Basic origin check — only allow requests from your own domain
-  if (allowed && origin !== allowed) {
-    return new Response(JSON.stringify({ error: 'Forbidden' }), {
-      status: 403,
-      headers: corsHeaders,
-    });
+  // Only allow requests from our own origin (when APP_ORIGIN is configured)
+  if (allowed && origin && origin !== allowed) {
+    return res.status(403).json({ error: 'Forbidden' });
   }
 
   const apiKey = process.env.ANTHROPIC_API_KEY;
   if (!apiKey) {
-    return new Response(JSON.stringify({ error: 'API key not configured on server' }), {
-      status: 500,
-      headers: corsHeaders,
-    });
+    return res.status(500).json({ error: 'ANTHROPIC_API_KEY not configured on server' });
   }
 
   try {
-    const body = await req.json();
+    const body = typeof req.body === 'string' ? JSON.parse(req.body) : (req.body || {});
+    if (!body.messages) return res.status(400).json({ error: 'Missing messages' });
 
-    // Forward the request to Anthropic
     const anthropicRes = await fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
       headers: {
@@ -73,28 +51,23 @@ export default async function handler(req) {
       body: JSON.stringify({
         model:      'claude-haiku-4-5-20251001',
         max_tokens: 1000,
-        messages:   body.messages,  // passed from the app
+        messages:   body.messages,
       }),
     });
 
-    const data = await anthropicRes.json();
-
-    if (!anthropicRes.ok) {
-      return new Response(JSON.stringify({ error: data.error?.message || 'Anthropic error' }), {
-        status: anthropicRes.status,
-        headers: corsHeaders,
-      });
+    const raw = await anthropicRes.text();
+    let data;
+    try { data = JSON.parse(raw); }
+    catch {
+      return res.status(502).json({ error: 'Anthropic returned non-JSON', _debug: raw.slice(0, 300) });
     }
 
-    return new Response(JSON.stringify(data), {
-      status: 200,
-      headers: corsHeaders,
-    });
+    if (!anthropicRes.ok) {
+      return res.status(anthropicRes.status).json({ error: data.error?.message || 'Anthropic error' });
+    }
 
+    return res.status(200).json(data);
   } catch (err) {
-    return new Response(JSON.stringify({ error: err.message }), {
-      status: 500,
-      headers: corsHeaders,
-    });
+    return res.status(500).json({ error: err.message });
   }
-}
+};

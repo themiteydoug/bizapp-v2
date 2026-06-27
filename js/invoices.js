@@ -84,32 +84,19 @@ const InvoiceModule = (() => {
       <!-- Photo capture -->
       <div class="section-label">Invoice photo <span style="color:var(--text-3);font-weight:400">(optional)</span></div>
 
-      <!-- File inputs — activated via <label for=""> so iOS camera opens reliably -->
-      <input type="file" id="inv-photo-camera"  accept="image/*" capture="environment" style="display:none">
+      <!-- File input — no 'capture', so iOS offers Photo Library / Take Photo / Choose File -->
       <input type="file" id="inv-photo-library" accept="image/*" style="display:none">
 
-      <!-- Photo zone — tap to open camera -->
-      <label class="photo-zone" id="photo-zone" for="inv-photo-camera" style="display:block;cursor:pointer${photoDataUrl ? ';border:2px solid var(--green-400)' : ''}">
+      <!-- Single tap zone — opens the picker (camera or library) -->
+      <label class="photo-zone" id="photo-zone" for="inv-photo-library" style="display:block;cursor:pointer${photoDataUrl ? ';border:2px solid var(--green-400)' : ''}">
         <div id="photo-placeholder" style="${photoDataUrl ? 'display:none' : 'display:flex'};flex-direction:column;align-items:center;padding:24px 0">
           <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" style="color:var(--green-400)"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"></path><circle cx="12" cy="13" r="4"></circle></svg>
-          <div style="font-size:13px;font-weight:500;color:var(--text-2);margin-top:8px">Tap to photograph invoice</div>
-          <div style="font-size:11px;color:var(--text-3);margin-top:3px">Optional — auto-reads the details when added</div>
+          <div style="font-size:13px;font-weight:500;color:var(--text-2);margin-top:8px">Tap to add invoice</div>
         </div>
         <img id="photo-preview" src="${photoDataUrl || ''}" style="${photoDataUrl ? 'display:block' : 'display:none'};width:100%;border-radius:var(--r-md);max-height:220px;object-fit:cover">
       </label>
       <!-- OCR scan status -->
       <div id="scan-status" style="display:none;font-size:12px;margin:6px 0 0;padding:8px 10px;border-radius:var(--r-sm);background:var(--bg-2);color:var(--text-2)"></div>
-
-      <div style="display:flex;gap:8px;margin-bottom:4px">
-        <label class="secondary-btn" style="flex:1;height:38px;font-size:13px;display:flex;align-items:center;justify-content:center;gap:6px;cursor:pointer" for="inv-photo-camera">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"></path><circle cx="12" cy="13" r="4"></circle></svg>
-          Camera
-        </label>
-        <label class="secondary-btn" style="flex:1;height:38px;font-size:13px;display:flex;align-items:center;justify-content:center;gap:6px;cursor:pointer" for="inv-photo-library">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>
-          Library
-        </label>
-      </div>
 
       <!-- Invoice details -->
       <div class="section-label" style="margin-top:14px">Invoice details</div>
@@ -167,7 +154,6 @@ const InvoiceModule = (() => {
     `;
 
     // Bind events programmatically — no inline onclick
-    document.getElementById('inv-photo-camera').addEventListener('change', handlePhoto);
     document.getElementById('inv-photo-library').addEventListener('change', handlePhoto);
     document.getElementById('inv-total-gst').addEventListener('input', calcGST);
     document.getElementById('inv-gst').addEventListener('input', calcGST);
@@ -204,8 +190,11 @@ const InvoiceModule = (() => {
     if (!file) return;
     e.target.value = ''; // reset so same file can be re-selected
     const reader = new FileReader();
-    reader.onload = ev => {
-      photoDataUrl = ev.target.result;
+    reader.onload = async ev => {
+      // Downscale + re-encode to JPEG: keeps localStorage small, the upload
+      // within serverless limits, and normalises HEIC/PNG to a format the
+      // vision API accepts.
+      photoDataUrl = await compressImage(ev.target.result);
       const preview = document.getElementById('photo-preview');
       const placeholder = document.getElementById('photo-placeholder');
       if (preview)     { preview.src = photoDataUrl; preview.style.display = 'block'; }
@@ -215,6 +204,27 @@ const InvoiceModule = (() => {
       if (Store.getSettings().autoOcr !== false) scanPhoto();   // OCR — auto-read details (default on)
     };
     reader.readAsDataURL(file);
+  }
+
+  // Resize an image dataURL down to maxDim on its longest edge, re-encoded as
+  // JPEG. Falls back to the original on any failure.
+  function compressImage(dataUrl, maxDim = 1600, quality = 0.82) {
+    return new Promise(resolve => {
+      const img = new Image();
+      img.onload = () => {
+        try {
+          const scale = Math.min(1, maxDim / Math.max(img.width, img.height));
+          const w = Math.max(1, Math.round(img.width * scale));
+          const h = Math.max(1, Math.round(img.height * scale));
+          const canvas = document.createElement('canvas');
+          canvas.width = w; canvas.height = h;
+          canvas.getContext('2d').drawImage(img, 0, 0, w, h);
+          resolve(canvas.toDataURL('image/jpeg', quality));
+        } catch { resolve(dataUrl); }
+      };
+      img.onerror = () => resolve(dataUrl);
+      img.src = dataUrl;
+    });
   }
 
   // ── OCR: read invoice details from the photo via Claude vision ─
