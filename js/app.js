@@ -166,6 +166,7 @@ const App = (() => {
         </div>
       </div>
 
+      ${isManager ? `
       <div class="settings-group">
         <div class="settings-group-label">Invoices</div>
         <div class="settings-item">
@@ -188,7 +189,7 @@ const App = (() => {
         <div class="settings-item" style="font-size:11px;color:var(--text-3);line-height:1.5">
           Reads supplier, total and GST from a photo automatically. Uses a paid AI service (a fraction of a cent per scan). Turn off to type details in manually.
         </div>
-      </div>
+      </div>` : ''}
 
       <div class="settings-group">
         <div class="settings-group-label">Session</div>
