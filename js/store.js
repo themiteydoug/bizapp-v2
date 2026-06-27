@@ -10,6 +10,7 @@ const Store = (() => {
     INVOICES:    'bizops_invoices',
     CASH_RECS:   'bizops_cash_recs',
     TS_PUSHES:   'bizops_ts_pushes',
+    TS_ADJUST:   'bizops_ts_adjustments',
     XERO_TOKENS: 'bizops_xero_tokens',
     SETTINGS:    'bizops_settings',
   };
@@ -209,6 +210,20 @@ const Store = (() => {
     return getTsPushes().find(p => p.weekStart === weekStart) || null;
   }
 
+  // ── Timesheet hour adjustments ─────────────────
+  // Manager overrides of Square hours, keyed by `${squareId}|${shiftStartTime}`.
+
+  function getTsAdjustments() {
+    return JSON.parse(localStorage.getItem(KEYS.TS_ADJUST) || '{}');
+  }
+
+  function saveTsAdjustment(key, hours) {
+    const all = getTsAdjustments();
+    if (hours == null || isNaN(hours)) delete all[key];   // clear override
+    else all[key] = Math.round(hours * 100) / 100;
+    localStorage.setItem(KEYS.TS_ADJUST, JSON.stringify(all));
+  }
+
   // ── Xero tokens ────────────────────────────────
 
   function getXeroTokens() {
@@ -249,6 +264,7 @@ const Store = (() => {
     getInvoices, saveInvoice, updateInvoice,
     getCashRecs, saveCashRec,
     getTsPushes, logTsPush, getLastPushForWeek,
+    getTsAdjustments, saveTsAdjustment,
     getXeroTokens, saveXeroTokens, clearXeroTokens,
     getSettings, saveSetting,
   };

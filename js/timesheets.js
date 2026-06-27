@@ -27,6 +27,40 @@ const TimesheetsModule = (() => {
       loadWeek(next);
     });
     document.getElementById('push-xero-btn')?.addEventListener('click', pushToXero);
+
+    // Manager hour edits — delegated so it survives re-renders (bind once)
+    const list = document.getElementById('ts-staff-list');
+    if (list && !list.dataset.editBound) {
+      list.dataset.editBound = '1';
+      list.addEventListener('change', onHoursEdit);
+    }
+  }
+
+  function onHoursEdit(e) {
+    const input = e.target;
+    if (!input.classList || !input.classList.contains('ts-hours-input')) return;
+    let val = input.value.trim() === '' ? null : parseFloat(input.value);
+    if (val != null && (isNaN(val) || val < 0)) val = 0;
+    Store.saveTsAdjustment(input.dataset.key, val);   // persist (or clear if null)
+    applyAdjustmentInMemory(input.dataset.key, val);
+    renderTimesheets(currentTimesheets, currentWeekStart);
+    App.toast(val == null ? 'Reverted to Square hours' : 'Hours adjusted');
+  }
+
+  // Update the in-memory timesheets so totals + push reflect the edit immediately
+  function applyAdjustmentInMemory(key, val) {
+    const sep = key.indexOf('|');
+    const squareId = key.slice(0, sep);
+    const startTime = key.slice(sep + 1);
+    const ts = currentTimesheets.find(t => String(t.squareId) === squareId);
+    if (!ts) return;
+    const shift = ts.shifts.find(s => s.startTime === startTime);
+    if (!shift) return;
+    shift.hours    = (val == null ? shift.squareHours : val);
+    shift.adjusted = val != null;
+    shift.shiftCost = Math.round(shift.hours * (shift.hourlyRate || 0) * 100) / 100;
+    ts.totalHours    = Math.round(ts.shifts.reduce((a, s) => a + s.hours, 0) * 100) / 100;
+    ts.estimatedCost = Math.round(ts.shifts.reduce((a, s) => a + (s.shiftCost || 0), 0));
   }
 
   async function loadWeek(weekStart) {
@@ -51,6 +85,7 @@ const TimesheetsModule = (() => {
 
   function renderTimesheets(data, weekStart) {
     const settings = Store.getSettings();
+    const canEdit = Auth.isManager();
     let totalHours = 0;
     let totalCost = 0;
 
@@ -78,10 +113,21 @@ const TimesheetsModule = (() => {
           : dayType.includes('sunday') ? 'cat-sunday'
           : 'cat-pubhol';
         const dayLabel = Holidays.formatDateLabel(shift.date).split(' ')[0]; // "Mon"
+        const key = `${ts.squareId}|${shift.startTime}`;
+        const hoursCell = canEdit
+          ? `<input class="ts-hours-input" type="number" inputmode="decimal" step="0.25" min="0"
+                value="${shift.hours}" data-key="${key}" title="Square recorded ${shift.squareHours}h"
+                onclick="event.stopPropagation()"
+                style="width:64px;text-align:right;font-size:13px;font-weight:600;padding:4px 6px;border:1.5px solid var(--border);border-radius:6px;background:var(--surface-2);color:var(--text-1)">`
+          : `<span class="ts-hours">${shift.hours}h</span>`;
+        const adjMark = shift.adjusted
+          ? `<span style="font-size:10px;color:var(--amber-800)" title="Adjusted from Square ${shift.squareHours}h">✎ was ${shift.squareHours}h</span>`
+          : '';
         return `
           <div class="ts-day-row">
             <span class="ts-day">${dayLabel}</span>
-            <span class="ts-hours">${shift.hours}h</span>
+            ${hoursCell}
+            ${adjMark}
             <span class="ts-category ${catClass}">${category || dayType}</span>
           </div>
         `;

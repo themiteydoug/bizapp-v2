@@ -134,6 +134,7 @@ const SquareAPI = (() => {
       limit: 200,
     });
     const timecards = (data.timecards || []).filter(t => !t.deleted);
+    const adjustments = Store.getTsAdjustments();   // manager hour overrides
     const byEmployee = {};
     timecards.forEach(tc => {
       const eid = tc.team_member_id;
@@ -146,12 +147,16 @@ const SquareAPI = (() => {
         if (b.start_at && b.end_at) return a + (new Date(b.end_at) - new Date(b.start_at)) / 60000;
         return a;
       }, 0);
-      const hours = Math.round((rawHours - breakMins / 60) * 100) / 100;
+      const squareHours = Math.round((rawHours - breakMins / 60) * 100) / 100;
+      // Apply a manager adjustment if one exists for this shift
+      const adjKey = `${eid}|${tc.start_at}`;
+      const adjusted = adjustments[adjKey] != null;
+      const hours = adjusted ? adjustments[adjKey] : squareHours;
       const date = new Date(tc.start_at).toLocaleDateString('sv-SE', { timeZone: 'Australia/Brisbane' });
       // Use rate from timecard wage (actual rate applied at clock-in)
       const hourlyRate = (tc.wage?.hourly_rate?.amount || 0) / 100;
       const shiftCost  = Math.round(hours * hourlyRate * 100) / 100;
-      byEmployee[eid].shifts.push({ date, hours, startTime: tc.start_at, endTime: tc.end_at, hourlyRate, shiftCost });
+      byEmployee[eid].shifts.push({ date, hours, squareHours, adjusted, startTime: tc.start_at, endTime: tc.end_at, hourlyRate, shiftCost });
       byEmployee[eid].totalCost = (byEmployee[eid].totalCost || 0) + shiftCost;
       if (hourlyRate) byEmployee[eid].hourlyRate = hourlyRate;
     });
