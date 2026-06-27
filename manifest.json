@@ -1,7 +1,7 @@
 {
-  "name": "BizOps",
-  "short_name": "BizOps",
-  "description": "Business operations — Square + Xero integrated",
+  "name": "PCW — Prime Cost Worksheet",
+  "short_name": "PCW",
+  "description": "Prime Cost Worksheet — Square + Xero integrated",
   "start_url": "/",
   "display": "standalone",
   "background_color": "#0A2A1F",

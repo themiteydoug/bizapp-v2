@@ -65,7 +65,7 @@ const Auth = (() => {
         ">
           <div style="width:64px;height:64px;background:#1D9E75;border-radius:16px;display:flex;align-items:center;justify-content:center;font-size:28px;font-weight:700;color:#fff">B</div>
           <div style="text-align:center">
-            <div style="font-size:22px;font-weight:600;color:#fff;margin-bottom:6px">BizOps</div>
+            <div style="font-size:22px;font-weight:600;color:#fff;margin-bottom:6px">PCW</div>
             <div style="font-size:14px;color:#9FE1CB">Enter your 4-digit PIN to continue</div>
           </div>
           <div style="display:flex;gap:12px;margin:8px 0" id="pin-dots">
