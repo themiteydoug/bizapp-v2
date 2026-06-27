@@ -55,15 +55,9 @@ const App = (() => {
     document.body.classList.toggle('role-manager', isManager);
     document.body.classList.toggle('role-staff',   !isManager);
 
-    // Toggle a class rather than inline display so grid/flex containers keep
-    // their natural layout when shown (inline display:'' was collapsing the
-    // 2-col hero-metrics grids to a single column).
-    document.querySelectorAll('.manager-only').forEach(el => {
-      el.classList.toggle('is-hidden', !isManager);
-    });
-    document.querySelectorAll('.staff-only').forEach(el => {
-      el.classList.toggle('is-hidden', isManager);
-    });
+    // Visibility is driven entirely by the body.role-* classes above + the
+    // CSS rules in index.html, so element display types (grid/block) are
+    // preserved. No per-element inline display manipulation needed.
 
     // Show role badge in header
     const roleBadge = document.getElementById('role-badge');

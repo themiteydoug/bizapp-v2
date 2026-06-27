@@ -12,10 +12,14 @@
   <link rel="apple-touch-icon" href="icons/icon-192.png">
   <link rel="stylesheet" href="css/app.css">
   <style>
-    /* Role-based visibility — toggled by App.applyRoleUI() which adds role-manager/role-staff to <body> */
+    /* Role-based visibility — App.applyRoleUI() adds role-manager/role-staff to <body>.
+       Use explicit display values (not `revert`, which resolves to the UA default
+       `block` and collapsed the 2-col .hero-metrics tile grid). */
     .manager-only { display: none; }
-    body.role-manager .manager-only { display: revert; }
-    body.role-staff   .staff-only   { display: none; }
+    .staff-only   { display: none; }
+    body.role-manager .manager-only { display: block; }
+    body.role-manager .hero-metrics.manager-only { display: grid; }
+    body.role-staff   .staff-only   { display: block; }
   </style>
 </head>
 <body>
