@@ -270,6 +270,9 @@ body {
   padding: 14px;
   color: #fff;
 }
+/* Threshold alert — tile turns red (wages >32%, COGS >35%, net profit < 0) */
+.hero-card.tile-alert { background: #8a1c1c; }
+.hero-card.tile-alert .hero-label { color: #f9c9c9; }
 .hero-label {
   font-size: 11px;
   color: var(--green-200);

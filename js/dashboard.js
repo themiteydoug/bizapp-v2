@@ -93,10 +93,13 @@ const Dashboard = (() => {
     const fmtAud = n => '$' + (n || 0).toLocaleString('en-AU', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
     const set    = (id, val) => { const el = document.getElementById(id); if (el) el.textContent = val; };
 
+    const alert  = (id, on) => { const el = document.getElementById(id); if (el) el.classList.toggle('tile-alert', !!on); };
+
     const gross    = weekTotals.total || 0;
     const gst      = weekTotals.gst || 0;
-    const netSales = gross - gst;                  // ex-GST — denominator for all %
-    const pct      = n => netSales > 0 ? (n / netSales * 100).toFixed(1) + '% of net sales' : '—';
+    const netSales = gross - gst;                  // ex-GST — denominator for ALL %
+    const pctNum   = n => netSales > 0 ? (n / netSales * 100) : 0;
+    const pct      = n => netSales > 0 ? pctNum(n).toFixed(1) + '% of net sales' : '—';
 
     const staffCost = timesheets.reduce((s, emp) => s + (emp.estimatedCost || 0), 0);
 
@@ -106,20 +109,21 @@ const Dashboard = (() => {
     const overheadWk = overhead?.weeklyAverage || 0;
     const netProfit  = netSales - staffCost - cogs - overheadWk;
 
-    // Tile 1 — Weekly sales shown EX-GST (the figure all percentages use);
-    // gross takings + GST collected shown underneath for reference.
-    set('dash-takings',       fmt(netSales));
-    set('dash-takings-delta', weekTotals.transactions ? weekTotals.transactions + ' transactions' : '');
-    set('dash-gst',           gst > 0 ? `gross ${fmt(gross)} · ${fmtAud(gst)} GST` : '');
+    // Tile 1 — Weekly sales: GST-INCLUSIVE total as the headline, ex-GST below.
+    // Percentages still use netSales (ex-GST), never the gross headline.
+    set('dash-takings', fmt(gross));
+    set('dash-gst',     gst > 0 ? `${fmt(netSales)} ex GST` : '');
 
-    // Tile 2 — Total staff cost
+    // Tile 2 — Total staff cost (red if wages > 32% of net sales)
     set('dash-staff-cost', staffCost > 0 ? fmt(staffCost) : '—');
     set('dash-staff-pct',  staffCost > 0 ? pct(staffCost) : timesheets.length + ' staff');
+    alert('dash-staff-tile', staffCost > 0 && pctNum(staffCost) > 32);
 
-    // Tile 3 — Invoices (COGS, ex-GST)
+    // Tile 3 — Invoices (COGS, ex-GST) (red if food cost > 35% of net sales)
     set('dash-cogs-amt', cogs > 0 ? fmt(cogs) : '$—');
     set('dash-cogs-pct', cogs > 0 ? pct(cogs)
       : (weekInvoices.length ? '—' : 'No invoices this week'));
+    alert('dash-cogs-tile', cogs > 0 && pctNum(cogs) > 35);
 
     // Tile 4 — Overheads (weekly average from Xero)
     if (overhead) {
@@ -130,9 +134,10 @@ const Dashboard = (() => {
       set('dash-oh-sub', XeroAPI.isConnected() ? 'avg per week' : 'Connect Xero');
     }
 
-    // Net profit
+    // Net profit (red if negative)
     set('dash-net',     netSales > 0 ? fmt(netProfit) : '$—');
     set('dash-net-pct', netSales > 0 ? pct(netProfit) : '— of net sales');
+    alert('dash-net-tile', netSales > 0 && netProfit < 0);
   }
 
   function updateSyncTime() {

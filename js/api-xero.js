@@ -471,19 +471,21 @@ const XeroAPI = (() => {
 
   // ── Overhead weekly average (since 1 July of previous year) ──
 
-  // Account-name fragments to exclude from overheads. We exclude the base
-  // WAGES accounts (incl. paid leave) because that labour cost already comes
-  // from the Square timesheet line — counting it here too would double-count.
-  // Superannuation and WorkCover are intentionally NOT excluded: Square gives
-  // wages only, so these on-costs must land in overheads to reach a true net.
-  const WAGE_KEYWORDS = [
+  // Account-name fragments to exclude from overheads:
+  //  - base WAGES (incl. paid leave): already counted via the Square timesheet
+  //    line, so including them here would double-count. Super & WorkCover are
+  //    NOT excluded (Square gives wages only, so they must land in overheads).
+  //  - COGS items (packaging, freight, courier): captured in the invoice/COGS
+  //    cycle, so excluded here to avoid double-counting them too.
+  const OVERHEAD_EXCLUDE_KEYWORDS = [
     'wage', 'salary', 'salaries', 'payroll',
     'leave loading', 'annual leave', 'sick leave', 'long service',
+    'packaging', 'freight', 'courier',
   ];
 
-  function isWage(accountName) {
+  function isExcludedFromOverhead(accountName) {
     const lower = (accountName || '').toLowerCase();
-    return WAGE_KEYWORDS.some(kw => lower.includes(kw));
+    return OVERHEAD_EXCLUDE_KEYWORDS.some(kw => lower.includes(kw));
   }
 
   /**
@@ -540,7 +542,7 @@ const XeroAPI = (() => {
         if (row.RowType !== 'Row') continue;
         const name   = row.Cells?.[0]?.Value || '';
         const amount = parseFloat(row.Cells?.[1]?.Value || '0');
-        if (isWage(name)) continue;   // super is kept in (see WAGE_KEYWORDS note)
+        if (isExcludedFromOverhead(name)) continue;   // wages/leave + COGS items
         if (!amount) continue;
         total += amount;
       }
