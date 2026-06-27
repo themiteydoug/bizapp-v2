@@ -13,7 +13,6 @@ const InvoiceModule = (() => {
     renderForm();
     renderWeekNav();
     loadWeekInvoices();
-    loadPendingXero();
   }
 
   function renderWeekNav() {
@@ -288,39 +287,6 @@ const InvoiceModule = (() => {
         </div>
       </div>
     `).join('') + '</div>';
-  }
-
-  // ── Pending Xero bills ─────────────────────────
-
-  async function loadPendingXero() {
-    const list = document.getElementById('pending-xero-list');
-    if (!list) return;
-    if (!XeroAPI.isConnected()) {
-      list.innerHTML = '<div class="empty-state">Connect Xero in Settings to see draft bills</div>';
-      return;
-    }
-    try {
-      const bills = await XeroAPI.getDraftBills();
-      const drafts = bills.filter(b => b.status === 'DRAFT').slice(0, 5);
-      if (!drafts.length) { list.innerHTML = '<div class="empty-state">No draft bills in Xero</div>'; return; }
-      list.innerHTML = '<div class="card">' + drafts.map(b => `
-        <div class="invoice-item">
-          <div class="invoice-icon">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline></svg>
-          </div>
-          <div class="invoice-info">
-            <div class="invoice-supplier">${escHtml(b.supplier || '—')}</div>
-            <div class="invoice-meta">${b.invoiceNo || '—'} · Due ${b.dueDate ? new Date(b.dueDate + 'T12:00:00').toLocaleDateString('en-AU', { day: 'numeric', month: 'short' }) : '—'}</div>
-          </div>
-          <div class="invoice-right">
-            <div class="invoice-amount">$${(b.amount || 0).toFixed(2)}</div>
-            <span class="invoice-status status-draft">Code in Xero</span>
-          </div>
-        </div>
-      `).join('') + '</div>';
-    } catch (e) {
-      list.innerHTML = '<div class="empty-state">Could not load Xero bills</div>';
-    }
   }
 
   // ── Helpers ───────────────────────────────────

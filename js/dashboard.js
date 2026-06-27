@@ -58,20 +58,20 @@ const Dashboard = (() => {
     const weekEnd = Holidays.getWeekEnd(currentWeekStart);
 
     try {
-      const [weekTotals, timesheets] = await Promise.all([
+      const isManager = Auth.isManager();
+
+      const [weekTotals, timesheets, overhead] = await Promise.all([
         SquareAPI.getWeeklyTotals(currentWeekStart, weekEnd),
         SquareAPI.getWeekTimesheets(currentWeekStart),
+        (isManager && XeroAPI.isConnected())
+          ? XeroAPI.getOverheadAverage(currentWeekStart).catch(e => {
+              console.warn('Xero overhead error:', e.message);
+              return null;
+            })
+          : Promise.resolve(null),
       ]);
 
-      renderWeeklyHero(weekTotals, timesheets);
-
-      if (Auth.isManager()) {
-        renderCosts(weekTotals, timesheets, currentWeekStart, weekEnd);
-
-        if (XeroAPI.isConnected()) {
-          loadOverhead();
-        }
-      }
+      renderMetrics(weekTotals, timesheets, overhead, currentWeekStart, weekEnd);
     } catch (e) {
       console.error('Dashboard refresh error:', e);
       App.toast('Sync error: ' + e.message, 'error');
@@ -81,115 +81,57 @@ const Dashboard = (() => {
     }
   }
 
-  function renderWeeklyHero(weekTotals, timesheets) {
-    const fmt = n => '$' + Math.round(n).toLocaleString();
-    const revenue = weekTotals.total || 0;
-
-    const totalHours = timesheets.reduce((s, emp) => s + emp.totalHours, 0);
-    const staffCost  = timesheets.reduce((s, emp) => s + (emp.estimatedCost || 0), 0);
-
-    const set = (id, val) => { const el = document.getElementById(id); if (el) el.textContent = val; };
-
-    set('dash-takings',      fmt(revenue));
-    set('dash-takings-delta', weekTotals.transactions ? weekTotals.transactions + ' transactions' : '');
-    const gst = weekTotals.gst || 0;
-    set('dash-gst', gst > 0 ? 'incl. $' + gst.toFixed(2) + ' GST' : '');
-    set('dash-staff-cost',   staffCost > 0 ? fmt(staffCost) : '—');
-    set('dash-staff-pct',    revenue > 0 && staffCost > 0 ? (staffCost / revenue * 100).toFixed(1) + '% of sales' : timesheets.length + ' staff');
-    set('dash-labour-pct',   revenue > 0 && staffCost > 0 ? (staffCost / revenue * 100).toFixed(1) + '%' : '—%');
-    set('dash-labour-amt',   staffCost > 0 ? fmt(staffCost) : '$—');
-
-    // COGS from week invoices
-    const weekEnd = Holidays.getWeekEnd(currentWeekStart);
-    const weekInvoices = Store.getInvoices().filter(inv => inv.date >= currentWeekStart && inv.date <= weekEnd);
-    const cogs = Math.round(weekInvoices.reduce((s, inv) => s + (inv.subtotal || 0), 0));
-    set('dash-cogs-pct', revenue > 0 && cogs > 0 ? (cogs / revenue * 100).toFixed(1) + '%' : '—%');
-    set('dash-cogs-amt', cogs > 0 ? fmt(cogs) : '$—');
-  }
-
   /**
-   * renderCosts — real data only, no hardcoded percentages.
-   *  Labour: Square timesheet hours × $28/hr blended estimate (Fast Food Award L1 casual weekday)
-   *  COGS:   sum of today's scanned invoices from local store
-   *  Overhead row removed from daily view — see weekly avg Xero section below
+   * renderMetrics — populates the 2x2 tile grid + net profit tile.
+   * All percentages are computed against NET (ex-GST) sales:
+   *   net sales = gross takings − GST collected
+   *   COGS uses inv.subtotal (already ex-GST per invoice)
+   *   net profit = net sales − staff cost − COGS − overhead avg
    */
-  function renderCosts(weekTotals, timesheets, weekStart, weekEnd) {
-    const revenue = weekTotals.total || 0;
+  function renderMetrics(weekTotals, timesheets, overhead, weekStart, weekEnd) {
+    const fmt    = n => (n < 0 ? '-$' : '$') + Math.abs(Math.round(n)).toLocaleString();
+    const fmtAud = n => '$' + (n || 0).toLocaleString('en-AU', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    const set    = (id, val) => { const el = document.getElementById(id); if (el) el.textContent = val; };
 
-    const totalHours = timesheets.reduce((s, emp) => s + emp.totalHours, 0);
-    const labour = timesheets.reduce((s, emp) => s + (emp.estimatedCost || 0), 0);
+    const gross    = weekTotals.total || 0;
+    const gst      = weekTotals.gst || 0;
+    const netSales = gross - gst;                  // ex-GST — denominator for all %
+    const pct      = n => netSales > 0 ? (n / netSales * 100).toFixed(1) + '% of net sales' : '—';
+
+    const staffCost = timesheets.reduce((s, emp) => s + (emp.estimatedCost || 0), 0);
 
     const weekInvoices = Store.getInvoices().filter(inv => inv.date >= weekStart && inv.date <= weekEnd);
-    const cogs = Math.round(weekInvoices.reduce((sum, inv) => sum + (inv.subtotal || 0), 0));
+    const cogs = weekInvoices.reduce((s, inv) => s + (inv.subtotal || 0), 0);   // ex-GST
 
-    const net = revenue - labour - cogs;
+    const overheadWk = overhead?.weeklyAverage || 0;
+    const netProfit  = netSales - staffCost - cogs - overheadWk;
 
-    const fmt = n => (n < 0 ? '-$' : '$') + Math.abs(Math.round(n)).toLocaleString();
-    const pct = n => revenue > 0 ? (n / revenue * 100).toFixed(1) + '%' : '—';
-    const set = (id, val) => { const el = document.getElementById(id); if (el) el.textContent = val; };
+    // Tile 1 — Weekly sales (display gross; show GST + transactions underneath)
+    set('dash-takings',       fmt(gross));
+    set('dash-takings-delta', weekTotals.transactions ? weekTotals.transactions + ' transactions' : '');
+    set('dash-gst',           gst > 0 ? 'incl. ' + fmtAud(gst) + ' GST' : '');
 
-    const labourSub = totalHours > 0
-      ? `${totalHours.toFixed(1)}h · actual Square rates`
-      : 'No Square timecards this week';
-    const cogsSub = weekInvoices.length > 0
-      ? `${weekInvoices.length} invoice${weekInvoices.length > 1 ? 's' : ''} this week`
-      : 'Scan invoices to track COGS';
+    // Tile 2 — Total staff cost
+    set('dash-staff-cost', staffCost > 0 ? fmt(staffCost) : '—');
+    set('dash-staff-pct',  staffCost > 0 ? pct(staffCost) : timesheets.length + ' staff');
 
-    set('cost-labour',     fmt(labour));
-    set('cost-labour-pct', pct(labour));
-    set('cost-labour-sub', labourSub);
-    set('cost-cogs',       fmt(cogs));
-    set('cost-cogs-pct',   pct(cogs));
-    set('cost-cogs-sub',   cogsSub);
-    const ohRow = document.getElementById('cost-oh-row');
-    const ohBar = document.getElementById('bar-oh-wrap');
-    if (ohRow) ohRow.style.display = 'none';
-    if (ohBar) ohBar.style.display = 'none';
-    set('cost-net',     fmt(net));
-    set('cost-net-pct', pct(net));
+    // Tile 3 — Invoices (COGS, ex-GST)
+    set('dash-cogs-amt', cogs > 0 ? fmt(cogs) : '$—');
+    set('dash-cogs-pct', cogs > 0 ? pct(cogs)
+      : (weekInvoices.length ? '—' : 'No invoices this week'));
 
-    setTimeout(() => {
-      const setBar = (id, val) => {
-        const el = document.getElementById(id);
-        if (el) el.style.width = revenue > 0 ? Math.min(Math.max(val, 0) / revenue * 100, 100) + '%' : '0%';
-      };
-      setBar('bar-labour', labour);
-      setBar('bar-cogs',   cogs);
-    }, 80);
-  }
-
-  // ── Overhead weekly average (manager only) ───
-
-  async function loadOverhead() {
-    const card = document.getElementById('overhead-card');
-    if (!card) return;
-
-    card.innerHTML = '<div class="empty-state">Loading from Xero…</div>';
-
-    try {
-      const weekStart = Holidays.getWeekStart();
-      const data = await XeroAPI.getOverheadAverage(weekStart);
-      renderOverhead(data);
-    } catch (e) {
-      card.innerHTML = `<div class="empty-state" style="color:var(--red-500)">Could not load overhead data: ${e.message}</div>`;
+    // Tile 4 — Overheads (weekly average from Xero)
+    if (overhead) {
+      set('dash-oh-amt', fmtAud(overheadWk));
+      set('dash-oh-sub', overhead.note ? overhead.note : `avg/wk · ${overhead.weeks || '—'} wks`);
+    } else {
+      set('dash-oh-amt', '$—');
+      set('dash-oh-sub', XeroAPI.isConnected() ? 'avg per week' : 'Connect Xero');
     }
-  }
 
-  function renderOverhead(data) {
-    const card = document.getElementById('overhead-card');
-    if (!card) return;
-
-    const fmt = n => '$' + (n || 0).toLocaleString('en-AU', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-    const fmtDate = d => d ? new Date(d + 'T12:00:00Z').toLocaleDateString('en-AU', { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'UTC' }) : '—';
-
-    card.innerHTML = `
-      <div style="font-size:28px;font-weight:700;color:var(--text-1)">${fmt(data.weeklyAverage)}</div>
-      <div style="font-size:12px;color:var(--text-3);margin-top:2px">avg per week (ex wages &amp; super)</div>
-      <div style="font-size:11px;color:var(--text-3);margin-top:10px">
-        ${fmtDate(data.fromDate)} – ${fmtDate(data.toDate)}${data.weeks ? ` · ${data.weeks} weeks` : ''}
-        ${data.note ? `· <em>${data.note}</em>` : ''}
-      </div>
-    `;
+    // Net profit
+    set('dash-net',     netSales > 0 ? fmt(netProfit) : '$—');
+    set('dash-net-pct', netSales > 0 ? pct(netProfit) : '— of net sales');
   }
 
   function updateSyncTime() {
