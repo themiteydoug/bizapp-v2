@@ -28,6 +28,7 @@ const App = (() => {
       btn.classList.toggle('active', btn.dataset.page === page);
     });
 
+    if (page === 'dashboard')  Dashboard.show();
     if (page === 'cash')       CashModule.init();
     if (page === 'timesheets') TimesheetsModule.init();
     if (page === 'staff')      StaffModule.init();

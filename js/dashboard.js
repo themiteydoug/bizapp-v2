@@ -54,6 +54,18 @@ const Dashboard = (() => {
     if (el) el.textContent = Holidays.formatWeekLabel(currentWeekStart);
   }
 
+  // Called when navigating back to the dashboard. Unlike the other views,
+  // the dashboard is only init()'d once, so it must re-sync the shared week
+  // here or a week chosen on another tab wouldn't carry over.
+  function show() {
+    const w = App.getWeek();
+    if (w && w !== currentWeekStart) {
+      currentWeekStart = w;
+      updateWeekLabel();
+    }
+    refresh();
+  }
+
   async function refresh() {
     const syncBtn = document.getElementById('sync-btn');
     if (syncBtn) syncBtn.classList.add('spinning');
@@ -166,6 +178,6 @@ const Dashboard = (() => {
     }
   }
 
-  return { init, refresh, checkUpcomingHolidays };
+  return { init, show, refresh, checkUpcomingHolidays };
 
 })();
