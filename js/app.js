@@ -233,10 +233,12 @@ const App = (() => {
       };
 
       const rates = d.earningsRates.map(r => row(esc(r.name), esc(rateDetail(r)))).join('') || '<em>none</em>';
-      const emps  = d.employees.map(e =>
-        row(`${esc(e.name)} <em style="color:var(--text-3)">${esc(e.payType || '')}</em>`,
-            e.baseRate != null ? '$' + e.baseRate + '/hr' : 'salaried')
-      ).join('') || '<em>none</em>';
+      const emps  = d.employees.map(e => {
+        const meta = [e.payType, e.basis, e.level != null ? 'L' + e.level : null].filter(Boolean).join(' · ');
+        const right = e.weeklyCost != null ? '$' + e.weeklyCost + '/wk (salary)'
+          : (e.baseRate != null ? '$' + e.baseRate + '/hr' : '—');
+        return row(`${esc(e.name)} <em style="color:var(--text-3)">${esc(meta)}</em>`, esc(right));
+      }).join('') || '<em>none</em>';
 
       const rawJson = esc(JSON.stringify(d.raw, null, 2));
 

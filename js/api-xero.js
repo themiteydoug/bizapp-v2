@@ -345,7 +345,7 @@ const XeroAPI = (() => {
     // at once silently drops the overflow (leaving base rates blank).
     const employees = [];
     for (const e of empList) {
-      let baseRate = null, ordinaryName = null;
+      let baseRate = null, ordinaryName = null, annualSalary = null, hoursPerWeek = null;
       let basis = e.EmploymentBasis || e.EmploymentType || null;
       try {
         const detail = (await proxyFetch(`/Employees/${e.EmployeeID}`, {}, true)).Employees?.[0] || null;
@@ -355,20 +355,27 @@ const XeroAPI = (() => {
           const lines = detail.PayTemplate?.EarningsLines || [];
           const ordLine = lines.find(l => l.EarningsRateID === ordId) || lines[0];
           baseRate     = ordLine?.RatePerUnit ?? rateById[ordId]?.ratePerUnit ?? null;
+          annualSalary = ordLine?.AnnualSalary ?? null;          // salaried staff
+          hoursPerWeek = ordLine?.NumberOfUnitsPerWeek ?? null;
           ordinaryName = rateById[ordId]?.name
             ?? (ordLine && rateById[ordLine.EarningsRateID]?.name) ?? null;
           if (baseRate != null && !rawHourly)   rawHourly   = detail;
-          if (baseRate == null && !rawSalaried) rawSalaried = detail;
+          if ((annualSalary || 0) > 0 && !rawSalaried) rawSalaried = detail;
         }
       } catch (err) {
         console.warn('[Xero payroll] detail failed for', e.EmployeeID, err.message);
       }
-      // Hourly staff (have a base rate) get timesheets pushed; salaried don't.
-      const payType = baseRate != null ? 'Hourly · push' : 'Salaried · no push';
+      // Salaried (annual salary set) → no push; hourly (base rate) → push.
+      const salaried   = (annualSalary || 0) > 0;
+      const weeklyCost = salaried ? Math.round((annualSalary / 52) * 100) / 100 : null;
+      const lvl        = (ordinaryName || '').match(/level\s*([0-9]+)/i);
+      const level      = lvl ? parseInt(lvl[1], 10) : null;
+      const payType    = salaried ? 'Salaried · no push'
+        : (baseRate != null ? 'Hourly · push' : 'Unknown');
       employees.push({
         name:  `${e.FirstName || ''} ${e.LastName || ''}`.trim() || e.EmployeeID,
         id:    e.EmployeeID,
-        basis, baseRate, ordinaryName, payType,
+        basis, baseRate, ordinaryName, payType, annualSalary, weeklyCost, level,
       });
     }
 
