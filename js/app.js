@@ -242,6 +242,7 @@ const App = (() => {
       ?.addEventListener('change', function () {
         Store.saveSetting('sendToXero', this.checked);
         App.toast('Send invoices to Xero ' + (this.checked ? 'on' : 'off'));
+        InvoiceModule.updateSaveButtonLabel?.();   // reflect on the invoice form's button
         refreshSettings();
       });
     body.querySelector('#auto-ocr-toggle')

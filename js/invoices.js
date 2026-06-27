@@ -438,6 +438,18 @@ const InvoiceModule = (() => {
     `).join('') + '</div>';
   }
 
+  // Refresh just the save button's label (e.g. after the Send-to-Xero toggle
+  // changes) without re-rendering the form, so typed values are preserved.
+  function updateSaveButtonLabel() {
+    const btn = document.getElementById('save-invoice-btn');
+    if (!btn) return;
+    const sendToXero = Store.getSettings().sendToXero !== false;
+    const label = editingId ? 'Update invoice' : (sendToXero ? 'Save &amp; send to Xero' : 'Save invoice');
+    btn.innerHTML =
+      '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="22" y1="2" x2="11" y2="13"></line><polygon points="22 2 15 22 11 13 2 9 22 2"></polygon></svg> '
+      + label;
+  }
+
   // ── Helpers ───────────────────────────────────
 
   function setEl(id, v) { const el = document.getElementById(id); if (el) el.textContent = v; }
@@ -445,6 +457,6 @@ const InvoiceModule = (() => {
     return String(s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
   }
 
-  return { init, calcGST, save, startEdit, cancelEdit };
+  return { init, calcGST, save, startEdit, cancelEdit, updateSaveButtonLabel };
 
 })();
