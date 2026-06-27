@@ -20,6 +20,8 @@
     body.role-manager .manager-only { display: block; }
     body.role-manager .hero-metrics.manager-only { display: grid; }
     body.role-staff   .staff-only   { display: block; }
+    /* For staff the Overheads tile is hidden, so the Invoices tile spans the row */
+    body.role-staff #dash-cogs-tile { grid-column: 1 / -1; }
   </style>
 </head>
 <body>
@@ -89,13 +91,13 @@
             </div>
           </div>
 
-          <div class="hero-metrics manager-only" style="margin-top:0">
-            <div class="hero-card">
+          <div class="hero-metrics" style="margin-top:0">
+            <div class="hero-card" id="dash-cogs-tile">
               <div class="hero-label">Invoices (COGS)</div>
               <div class="hero-value" id="dash-cogs-amt">$—</div>
               <div class="hero-delta" id="dash-cogs-pct">— of net sales</div>
             </div>
-            <div class="hero-card">
+            <div class="hero-card manager-only">
               <div class="hero-label">Overheads</div>
               <div class="hero-value" id="dash-oh-amt">$—</div>
               <div class="hero-delta" id="dash-oh-sub">avg per week</div>
