@@ -339,26 +339,33 @@ const XeroAPI = (() => {
     // rate itself — try both. Capture the first raw detail for structure check.
     const empList = (await proxyFetch('/Employees', {}, true)).Employees || [];
     let rawEmployeeSample = null;
-    const employees = await Promise.all(empList.map(async (e, i) => {
+    // Fetch detail SEQUENTIALLY — Xero caps concurrency (~5), and firing all
+    // at once silently drops the overflow (leaving base rates blank).
+    const employees = [];
+    for (const e of empList) {
       let baseRate = null, ordinaryName = null;
       let basis = e.EmploymentBasis || e.EmploymentType || null;
       try {
-        const detail = (await proxyFetch(`/Employees/${e.EmployeeID}`, {}, true)).Employees?.[0] || {};
-        if (i === 0) rawEmployeeSample = detail;
-        basis = detail.EmploymentBasis || basis;
-        const ordId = detail.OrdinaryEarningsRateID;
-        const lines = detail.PayTemplate?.EarningsLines || [];
-        const ordLine = lines.find(l => l.EarningsRateID === ordId) || lines[0];
-        baseRate     = ordLine?.RatePerUnit ?? rateById[ordId]?.ratePerUnit ?? null;
-        ordinaryName = rateById[ordId]?.name
-          ?? (ordLine && rateById[ordLine.EarningsRateID]?.name) ?? null;
-      } catch (_) { /* detail fetch failed — leave base rate null */ }
-      return {
+        const detail = (await proxyFetch(`/Employees/${e.EmployeeID}`, {}, true)).Employees?.[0] || null;
+        if (detail) {
+          if (!rawEmployeeSample) rawEmployeeSample = detail;
+          basis = detail.EmploymentBasis || basis;
+          const ordId = detail.OrdinaryEarningsRateID;
+          const lines = detail.PayTemplate?.EarningsLines || [];
+          const ordLine = lines.find(l => l.EarningsRateID === ordId) || lines[0];
+          baseRate     = ordLine?.RatePerUnit ?? rateById[ordId]?.ratePerUnit ?? null;
+          ordinaryName = rateById[ordId]?.name
+            ?? (ordLine && rateById[ordLine.EarningsRateID]?.name) ?? null;
+        }
+      } catch (err) {
+        console.warn('[Xero payroll] detail failed for', e.EmployeeID, err.message);
+      }
+      employees.push({
         name:  `${e.FirstName || ''} ${e.LastName || ''}`.trim() || e.EmployeeID,
         id:    e.EmployeeID,
         basis, baseRate, ordinaryName,
-      };
-    }));
+      });
+    }
 
     // Trimmed raw samples so the exact field names/values are visible on screen
     const rawRate = (payData.PayItems?.EarningsRates || [])[0] || null;
