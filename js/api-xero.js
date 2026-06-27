@@ -142,6 +142,11 @@ const XeroAPI = (() => {
         // Surface whichever field carries the real cause — our proxy uses
         // lowercase error/detail; Xero's own errors use Detail/Message/Title.
         msg = e.error || e.detail || e.Detail || e.Message || e.Title || msg;
+        // Append the raw upstream snippet + Xero status so the actual cause
+        // (e.g. an HTML 404/405 page) is visible without digging.
+        if (e._debug?.xeroStatus) msg += ` (Xero ${e._debug.xeroStatus})`;
+        if (e._debug?.body) msg += ` · ${String(e._debug.body).replace(/\s+/g, ' ').slice(0, 200)}`;
+        if (e._debug?.url) msg += ` · ${e._debug.url}`;
         console.error(`[Xero proxy] ${endpoint} → ${res.status}`, e);
       } catch {}
       throw new Error(msg);
