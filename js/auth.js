@@ -63,7 +63,7 @@ const Auth = (() => {
           display:flex;flex-direction:column;align-items:center;
           justify-content:center;gap:20px;padding:32px;z-index:999;
         ">
-          <div style="width:64px;height:64px;background:#1D9E75;border-radius:16px;display:flex;align-items:center;justify-content:center;font-size:28px;font-weight:700;color:#fff">B</div>
+          <img src="icons/icon-192.png" alt="PCW" style="width:96px;height:96px;border-radius:20px;object-fit:cover;box-shadow:0 6px 16px rgba(0,0,0,0.35)">
           <div style="text-align:center">
             <div style="font-size:22px;font-weight:600;color:#fff;margin-bottom:6px">PCW</div>
             <div style="font-size:14px;color:#9FE1CB">Enter your 4-digit PIN to continue</div>
