@@ -309,6 +309,52 @@ const XeroAPI = (() => {
     return items.map(i => i.name);
   }
 
+  /**
+   * DISCOVERY: pull the raw Xero payroll data so we can verify what's there
+   * before wiring up wage logic. Returns:
+   *   earningsRates: every pay item with its rate type / multiplier / fixed rate
+   *   employees:     each employee's employment basis + base (ordinary) hourly rate
+   */
+  async function inspectPayroll() {
+    // 1. Earnings rates (pay items)
+    const payData = await proxyFetch('/PayItems', {}, true);
+    const earningsRates = (payData.PayItems?.EarningsRates || []).map(r => ({
+      name:         r.Name,
+      id:           r.EarningsRateID,
+      rateType:     r.RateType,          // RatePerUnit | MultipleOfOrdinaryEarningsRate | FixedAmount
+      ratePerUnit:  r.RatePerUnit,       // fixed $/unit (when RateType=RatePerUnit)
+      multiplier:   r.Multiplier,        // e.g. 1.25, 1.5, 2.5 (when MultipleOfOrdinary…)
+      earningsType: r.EarningsType,      // OrdinaryTimeEarnings | OvertimeEarnings | …
+      unitType:     r.TypeOfUnits,
+    }));
+
+    // 2. Employees + base rate from each pay template (needs the detail call)
+    const empList = (await proxyFetch('/Employees', {}, true)).Employees || [];
+    const employees = await Promise.all(empList.map(async e => {
+      let baseRate = null, ordinaryName = null;
+      let basis = e.EmploymentBasis || e.EmploymentType || null;
+      try {
+        const detail = (await proxyFetch(`/Employees/${e.EmployeeID}`, {}, true)).Employees?.[0] || {};
+        basis = detail.EmploymentBasis || basis;
+        const lines = detail.PayTemplate?.EarningsLines || [];
+        const ordLine = lines.find(l => l.EarningsRateID === detail.OrdinaryEarningsRateID) || lines[0];
+        if (ordLine) {
+          baseRate     = ordLine.RatePerUnit ?? null;
+          ordinaryName = earningsRates.find(r => r.id === ordLine.EarningsRateID)?.name || null;
+        }
+      } catch (_) { /* detail fetch failed — leave base rate null */ }
+      return {
+        name:  `${e.FirstName || ''} ${e.LastName || ''}`.trim() || e.EmployeeID,
+        id:    e.EmployeeID,
+        basis, baseRate, ordinaryName,
+      };
+    }));
+
+    console.log('[Xero payroll] earnings rates:', earningsRates);
+    console.log('[Xero payroll] employees:', employees);
+    return { earningsRates, employees };
+  }
+
   // ── Timesheets ────────────────────────────────
 
   /**
@@ -509,6 +555,7 @@ const XeroAPI = (() => {
     createDraftBill,
     getPayRates,
     getPayItemsWithIds,
+    inspectPayroll,
     pushTimesheets,
     getOverheadAverage,
   };

@@ -110,6 +110,16 @@ const App = (() => {
         ` : ''}
       </div>
 
+      ${isManager && !isDemo && xeroConnected ? `
+        <div class="settings-group">
+          <div class="settings-group-label">Xero payroll data (discovery)</div>
+          <div class="settings-item">
+            <button class="secondary-btn" style="height:38px;font-size:13px" data-action="inspect-xero">Inspect pay items &amp; base rates</button>
+          </div>
+          <div id="xero-inspect-out" style="font-size:12px;color:var(--text-2);line-height:1.5"></div>
+        </div>
+      ` : ''}
+
       <div class="settings-group">
         <div class="settings-group-label">Business</div>
         <div class="settings-item">
@@ -197,8 +207,44 @@ const App = (() => {
         Store.saveSetting('ekkaBrisbane', this.checked);
         App.toast('Ekka holiday ' + (this.checked ? 'enabled' : 'disabled'));
       });
+    body.querySelector('[data-action="inspect-xero"]')
+      ?.addEventListener('click', inspectXero);
 
     modal.classList.add('open');
+  }
+
+  // ── Xero payroll discovery ────────────────────
+
+  async function inspectXero() {
+    const out = document.getElementById('xero-inspect-out');
+    if (!out) return;
+    out.innerHTML = '<div style="padding:8px 0">Loading from Xero…</div>';
+    try {
+      const d = await XeroAPI.inspectPayroll();
+      const esc = s => String(s ?? '').replace(/[&<>]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]));
+      const row = (l, r) => `<div style="display:flex;justify-content:space-between;gap:8px;padding:3px 0;border-bottom:1px solid var(--border)"><span>${l}</span><span style="color:var(--text-3);white-space:nowrap;text-align:right">${r}</span></div>`;
+
+      const rateDetail = r =>
+        r.rateType === 'MultipleOfOrdinaryEarningsRate' ? `× ${r.multiplier}`
+        : r.rateType === 'RatePerUnit' ? (r.ratePerUnit != null ? '$' + r.ratePerUnit + '/' + (r.unitType || 'unit') : 'per-employee rate')
+        : (r.rateType || '—');
+
+      const rates = d.earningsRates.map(r => row(esc(r.name), esc(rateDetail(r)))).join('') || '<em>none</em>';
+      const emps  = d.employees.map(e =>
+        row(`${esc(e.name)} <em style="color:var(--text-3)">${esc(e.basis || '')}</em>`,
+            e.baseRate != null ? '$' + e.baseRate + '/hr' : '—')
+      ).join('') || '<em>none</em>';
+
+      out.innerHTML = `
+        <div style="margin-top:8px;font-weight:600;color:var(--text-1)">Earnings rates (${d.earningsRates.length})</div>
+        ${rates}
+        <div style="margin-top:14px;font-weight:600;color:var(--text-1)">Employees — base rate (${d.employees.length})</div>
+        ${emps}
+        <div style="margin-top:10px;color:var(--text-3)">Full detail also logged to the browser console.</div>
+      `;
+    } catch (err) {
+      out.innerHTML = `<div style="padding:8px 0;color:var(--red-500)">Error: ${err.message}</div>`;
+    }
   }
 
   // ── Sync button ───────────────────────────────
