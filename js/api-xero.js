@@ -230,7 +230,7 @@ const XeroAPI = (() => {
   }
 
   function demoOverhead() {
-    // Simulated financial-year-to-date weekly average overhead (ex wages, ex super)
+    // Simulated financial-year-to-date weekly average overhead (ex wages, incl super)
     return {
       weeklyAverage: 1842.50,
       total:         93967.50,
@@ -453,16 +453,20 @@ const XeroAPI = (() => {
 
   // ── Overhead weekly average (since 1 July of previous year) ──
 
-  // Account name fragments to exclude (wages + super)
-  const WAGE_SUPER_KEYWORDS = [
-    'wage', 'salary', 'salaries', 'superannuation', 'super annuation',
-    'super ', 'payroll', 'leave loading', 'annual leave', 'sick leave',
+  // Account-name fragments to exclude from overheads. We exclude the base
+  // WAGES accounts because that labour cost already comes from Square timesheets
+  // (counting it here too would double-count). Superannuation is intentionally
+  // NOT excluded — Square gives wages only, so super must be counted somewhere
+  // to reach a true net figure, and overheads is where it lands.
+  const WAGE_KEYWORDS = [
+    'wage', 'salary', 'salaries', 'payroll',
+    'leave loading', 'annual leave', 'sick leave',
     'long service', 'workers comp', 'workcover',
   ];
 
-  function isWageOrSuper(accountName) {
+  function isWage(accountName) {
     const lower = (accountName || '').toLowerCase();
-    return WAGE_SUPER_KEYWORDS.some(kw => lower.includes(kw));
+    return WAGE_KEYWORDS.some(kw => lower.includes(kw));
   }
 
   /**
@@ -519,7 +523,7 @@ const XeroAPI = (() => {
         if (row.RowType !== 'Row') continue;
         const name   = row.Cells?.[0]?.Value || '';
         const amount = parseFloat(row.Cells?.[1]?.Value || '0');
-        if (isWageOrSuper(name)) continue;
+        if (isWage(name)) continue;   // super is kept in (see WAGE_KEYWORDS note)
         if (!amount) continue;
         total += amount;
       }
