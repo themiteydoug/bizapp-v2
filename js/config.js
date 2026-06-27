@@ -31,7 +31,7 @@ const CONFIG = {
   // ── Xero OAuth (public values only) ─────────
   XERO: {
     REDIRECT_URI: 'https://bizapp-v2.vercel.app/xero-callback.html',
-    SCOPES: 'openid profile email offline_access accounting.contacts accounting.invoices accounting.reports.profitandloss.read payroll.employees.read payroll.timesheets',
+    SCOPES: 'openid profile email offline_access accounting.contacts accounting.invoices accounting.reports.profitandloss.read payroll.employees.read payroll.settings.read payroll.timesheets',
   },
 
   // ── Business settings ────────────────────────

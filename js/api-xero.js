@@ -454,14 +454,13 @@ const XeroAPI = (() => {
   // ── Overhead weekly average (since 1 July of previous year) ──
 
   // Account-name fragments to exclude from overheads. We exclude the base
-  // WAGES accounts because that labour cost already comes from Square timesheets
-  // (counting it here too would double-count). Superannuation is intentionally
-  // NOT excluded — Square gives wages only, so super must be counted somewhere
-  // to reach a true net figure, and overheads is where it lands.
+  // WAGES accounts (incl. paid leave) because that labour cost already comes
+  // from the Square timesheet line — counting it here too would double-count.
+  // Superannuation and WorkCover are intentionally NOT excluded: Square gives
+  // wages only, so these on-costs must land in overheads to reach a true net.
   const WAGE_KEYWORDS = [
     'wage', 'salary', 'salaries', 'payroll',
-    'leave loading', 'annual leave', 'sick leave',
-    'long service', 'workers comp', 'workcover',
+    'leave loading', 'annual leave', 'sick leave', 'long service',
   ];
 
   function isWage(accountName) {
