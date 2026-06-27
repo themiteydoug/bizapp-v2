@@ -32,6 +32,14 @@ const Sync = (() => {
 
   let timer = null;
   let available = true;   // flips false if the server says it's not configured
+  let connected = null;   // last network op result (drives the header indicator)
+
+  function setConnected(v) {
+    if (v !== connected) {
+      connected = v;
+      if (window.App && typeof App.onSyncStatus === 'function') App.onSyncStatus(v);
+    }
+  }
 
   function sortColl(coll, arr) {
     const ts = it => it.createdAt || it.pushedAt || it.date || '';
@@ -69,10 +77,11 @@ const Sync = (() => {
     let snap;
     try {
       const res = await fetch(API, { method: 'GET' });
-      if (res.status === 503) { available = false; return; }
-      if (!res.ok) return;
+      if (res.status === 503) { available = false; setConnected(false); return; }
+      if (!res.ok) { setConnected(false); return; }
       snap = await res.json();
-    } catch { return; }
+      setConnected(true);
+    } catch { setConnected(false); return; }
 
     let changed = false;
 
@@ -123,6 +132,6 @@ const Sync = (() => {
     });
   }
 
-  return { init, pull, pushItem, pushKey };
+  return { init, pull, pushItem, pushKey, isConnected: () => connected === true };
 
 })();

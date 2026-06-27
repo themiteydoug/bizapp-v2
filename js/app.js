@@ -74,6 +74,18 @@ const App = (() => {
     }
   }
 
+  // Called by Sync to reflect live-sync connectivity in the header badge.
+  function onSyncStatus(isConnected) {
+    const wrap = document.getElementById('sync-status');
+    const dot  = wrap?.querySelector('.sync-dot');
+    const txt  = document.getElementById('sync-status-text');
+    if (!wrap || !dot || !txt) return;
+    wrap.style.display = 'flex';
+    dot.classList.toggle('connected', !!isConnected);
+    dot.classList.toggle('offline', !isConnected);
+    txt.textContent = isConnected ? 'Synced' : 'Offline';
+  }
+
   // Called by Sync when the shared data changed — re-render the current view
   // from the freshly-merged local cache so updates from other devices show.
   function onDataChanged() {
@@ -380,6 +392,6 @@ const App = (() => {
     boot();
   }
 
-  return { nav, toast, openSettings, refreshSettings, applyRoleUI, getWeek, setWeek, onDataChanged };
+  return { nav, toast, openSettings, refreshSettings, applyRoleUI, getWeek, setWeek, onDataChanged, onSyncStatus };
 
 })();

@@ -54,6 +54,30 @@ instant. Before going to a real product, reassess the datastore:
 > commit to selling it, move to **realtime Postgres (Supabase/Neon/Convex)** for
 > instant updates + the multi-tenant foundation below.
 
+### Database capacity / paid tier
+
+The live store currently runs on **Upstash for Redis (Free tier)**, connected via
+Vercel. Free limits to watch:
+
+- **1 database per account**, ~**256 MB** storage, ~**10,000 commands/day**.
+- Eviction is **off** (deliberately) so invoices/cash are never auto-deleted —
+  which also means if the 256 MB cap is ever hit, *writes fail* rather than data
+  silently dropping. Plenty for one shop, but a real ceiling at scale.
+
+When to upgrade / change:
+
+- **One busy shop, long history + photos:** invoice photos are stored as data in
+  localStorage and (currently) not in Redis, so Redis stays small — but heavy use
+  could still approach the daily command limit with the 15s polling. Move to
+  Upstash **Pay-as-you-go / Pro** (a few $/month) if you see throttling.
+- **Multiple businesses (selling it):** the Free "1 database" cap is the blocker.
+  Either go paid Upstash with per-tenant key namespacing, or (preferred) move to
+  the **realtime Postgres** option above, which is built for multi-tenant scale
+  and gives instant updates at the same time.
+- **Polling cost:** every device polls every 15s = ~5,760 reads/device/day. A
+  handful of devices fits Free; many devices/businesses do not — another reason
+  realtime push (no polling) is the right long-term move.
+
 ## The foundational step: multi-tenancy
 
 To support more than one business you need a place to store *per-business* data
