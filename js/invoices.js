@@ -258,18 +258,21 @@ const InvoiceModule = (() => {
           }],
         }),
       });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || 'Scan failed');
+      const raw = await res.text();
+      let data;
+      try { data = JSON.parse(raw); }
+      catch { throw new Error(`Server returned ${res.status}: ${raw.slice(0, 120)}`); }
+      if (!res.ok) throw new Error(data.error || `Scan failed (HTTP ${res.status})`);
       const text = (data.content || []).map(c => c.text || '').join('');
       const parsed = parseScanJson(text);
-      if (!parsed) throw new Error('Could not parse invoice');
+      if (!parsed) throw new Error('AI did not return invoice data');
       const filled = applyScan(parsed);
       setScanStatus(filled
         ? 'Read from invoice — please check the details below'
         : 'Couldn’t read the details — enter them manually', false);
     } catch (err) {
       console.warn('[OCR]', err.message);
-      setScanStatus('Couldn’t auto-read this invoice — enter the details manually', false);
+      setScanStatus('Auto-read failed: ' + err.message + ' — enter details manually', false);
     }
   }
 
