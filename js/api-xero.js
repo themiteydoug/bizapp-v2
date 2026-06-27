@@ -18,6 +18,7 @@ const XeroAPI = (() => {
   // Cache for pay item ID lookups (avoid repeated API calls per session)
   let _payItemsCache = null;
   let _payInfoCache  = null;   // employee pay info (base rate / level / salary)
+  let _payInfoPromise = null;  // in-flight fetch, shared so concurrent callers don't stampede
 
   // ── Award rates (Fast Food Award) ─────────────
   // Multiplier × the employee's ordinary base rate, plus the Xero earnings-rate
@@ -436,7 +437,19 @@ const XeroAPI = (() => {
    */
   async function getEmployeePayInfo(force) {
     if (_payInfoCache && !force) return _payInfoCache;
-    if (CONFIG.FEATURES.DEMO_MODE) { _payInfoCache = { byName: {}, nameToId: {} }; return _payInfoCache; }
+    if (force) _payInfoPromise = null;
+    // Share one in-flight fetch across concurrent callers (renderList fires 13
+    // at once) so we don't kick off 13 full Xero fetches and get rate-limited.
+    if (!_payInfoPromise) {
+      _payInfoPromise = _loadEmployeePayInfo()
+        .then(r => { _payInfoCache = r; return r; })
+        .catch(e => { _payInfoPromise = null; throw e; });
+    }
+    return _payInfoPromise;
+  }
+
+  async function _loadEmployeePayInfo() {
+    if (CONFIG.FEATURES.DEMO_MODE) return { byName: {}, byEmail: {}, nameToId: {} };
 
     const payData = await proxyFetch('/PayItems', {}, true);
     const rates = (payData.PayItems?.EarningsRates || []);
@@ -471,8 +484,7 @@ const XeroAPI = (() => {
         console.warn('[Xero payinfo] failed for', e.EmployeeID, err.message);
       }
     }
-    _payInfoCache = { byName, byEmail, nameToId };
-    return _payInfoCache;
+    return { byName, byEmail, nameToId };
   }
 
   /**
