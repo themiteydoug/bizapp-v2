@@ -65,6 +65,16 @@ const CashModule = (() => {
 
   // ── Daily page ────────────────────────────────
 
+  // Dropdown options of active staff for "Counted by". Value = staff id so we
+  // can store a stable reference; the name is recorded too for display/history.
+  function staffOptionsHtml(selectedId) {
+    const staff = Store.getStaff().filter(s => s.active !== false);
+    const opts = staff.map(s =>
+      `<option value="${s.id}" ${s.id === selectedId ? 'selected' : ''}>${escHtml(s.name)}</option>`
+    ).join('');
+    return `<option value="">Select staff member…</option>${opts}`;
+  }
+
   function renderDailyPage() {
     const section = document.getElementById('cash-daily-section');
     if (!section) return;
@@ -106,6 +116,14 @@ const CashModule = (() => {
           <span class="drawer-label" style="font-weight:700;font-size:15px">Actual cash (to bank)</span>
           <span class="drawer-val" id="cash-to-bank" style="font-size:15px;font-weight:700;color:var(--green-600)">$0.00</span>
         </div>
+      </div>
+
+      <!-- Counted by — required -->
+      <div class="section-label">Counted by <span style="color:var(--red-500)">*</span></div>
+      <div class="card">
+        <select class="field-input" id="cash-counted-by">
+          ${staffOptionsHtml()}
+        </select>
       </div>
 
       <!-- Notes field -->
@@ -186,6 +204,11 @@ const CashModule = (() => {
   }
 
   function saveDaily() {
+    const sel = document.getElementById('cash-counted-by');
+    const countedById = sel?.value || '';
+    if (!countedById) { App.toast('Please select who counted the cash', 'warning'); return; }
+    const countedBy = Store.getStaff().find(s => s.id === countedById)?.name || '';
+
     let notes = 0, coins = 0;
     const counts = {};
     document.querySelectorAll('.denom-input').forEach(i => {
@@ -206,9 +229,12 @@ const CashModule = (() => {
       notesTotal:  notes,
       coinsTotal:  coins,
       denomCounts: counts,
+      countedBy,
+      countedById,
       notes:       document.getElementById('cash-notes')?.value || '',
     });
     App.toast(`Daily cash saved — $${actualCash.toFixed(2)} to bank`);
+    if (sel) sel.value = '';
     loadHistory();
   }
 
@@ -222,12 +248,12 @@ const CashModule = (() => {
       const amt = (r.actualCash ?? r.actual ?? 0);
       return `<div class="card" style="margin-bottom:8px">
         <div style="display:flex;justify-content:space-between;align-items:center">
-          <span style="font-size:13px;font-weight:500">${d}</span>
+          <span style="font-size:13px;font-weight:500">${d}${r.countedBy ? ` · ${escHtml(r.countedBy.split(' ')[0])}` : ''}</span>
           <span style="font-size:14px;font-weight:600;color:var(--green-600)">$${amt.toFixed(2)}</span>
         </div>
         <div style="font-size:12px;color:var(--text-3);margin-top:4px">
           Total in drawer $${(r.total ?? (amt + (r.float ?? FLOAT))).toFixed(2)} · Float $${(r.float ?? FLOAT).toFixed(2)}
-          ${r.notes ? ` · ${r.notes}` : ''}
+          ${r.notes ? ` · ${escHtml(r.notes)}` : ''}
         </div>
       </div>`;
     }).join('');
@@ -399,8 +425,10 @@ const CashModule = (() => {
       if (rec) {
         const amt = rec.actualCash ?? rec.actual ?? 0;
         totalBanked += amt;
+        const first = (rec.countedBy || '').trim().split(/\s+/)[0] || '';
         return `<div class="drawer-row">
           <span class="drawer-label">${label}</span>
+          <span style="flex:1;text-align:center;font-size:12px;font-weight:500;color:var(--text-3)">${escHtml(first)}</span>
           <span class="drawer-val" style="color:var(--green-600)">$${amt.toFixed(2)}</span>
         </div>`;
       }
@@ -465,6 +493,9 @@ const CashModule = (() => {
   // ── Helpers ───────────────────────────────────
 
   function setEl(id, val) { const el = document.getElementById(id); if (el) el.textContent = val; }
+  function escHtml(s) {
+    return String(s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+  }
 
   return { init, switchTab };
 
