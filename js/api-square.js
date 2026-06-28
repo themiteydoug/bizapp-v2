@@ -86,8 +86,15 @@ const SquareAPI = (() => {
       },
       limit: 500,
     });
-    // Any order with tenders has been paid — captures COMPLETED and paid OPEN orders
-    const orders = (data.orders || []).filter(o => o.tenders?.length > 0);
+    // Square "Total Sales" counts only COMPLETED orders. Paid-but-OPEN orders
+    // (tabs, partial payments) belong to "Total Collected", not sales — counting
+    // them over-states weekly sales, so exclude them here.
+    const paid   = (data.orders || []).filter(o => o.tenders?.length > 0);
+    const orders = paid.filter(o => o.state === 'COMPLETED');
+    let openTotal = 0, openCount = 0;
+    paid.forEach(o => {
+      if (o.state !== 'COMPLETED') { openTotal += (o.total_money?.amount || 0) / 100; openCount++; }
+    });
     let total = 0, cash = 0, card = 0, gst = 0;
     let grossSum = 0, tipSum = 0, refundDelta = 0, scSum = 0, discSum = 0;   // diagnostics
     orders.forEach(o => {
@@ -114,7 +121,7 @@ const SquareAPI = (() => {
         else                   card += (t.amount_money?.amount || 0) / 100;
       });
     });
-    return { date: dateStr, total, cash, card, gst, transactions: orders.length, grossSum, tipSum, refundDelta, scSum, discSum };
+    return { date: dateStr, total, cash, card, gst, transactions: orders.length, grossSum, tipSum, refundDelta, scSum, discSum, openTotal, openCount };
   }
 
   // Fetch cash refunds for the week from Square's /v2/refunds endpoint.
@@ -230,7 +237,7 @@ const SquareAPI = (() => {
       Promise.all(days.map(ds => fetchTakingsReal(ds).catch(() => ({ total: 0, cash: 0, card: 0, gst: 0, transactions: 0, grossSum: 0, tipSum: 0, refundDelta: 0 })))),
       fetchWeeklyRefunds(weekStart, weekEnd).catch(() => 0),
     ]);
-    const { total, cashGross, cardSales, gst, transactions, grossSum, tipSum, refundDelta, scSum, discSum } = orderResults.reduce(
+    const { total, cashGross, cardSales, gst, transactions, grossSum, tipSum, refundDelta, scSum, discSum, openTotal, openCount } = orderResults.reduce(
       (acc, r) => ({
         total:        acc.total        + (r.total || 0),
         cashGross:    acc.cashGross    + (r.cash  || 0),
@@ -242,19 +249,19 @@ const SquareAPI = (() => {
         refundDelta:  acc.refundDelta  + (r.refundDelta || 0),
         scSum:        acc.scSum        + (r.scSum || 0),
         discSum:      acc.discSum      + (r.discSum || 0),
+        openTotal:    acc.openTotal    + (r.openTotal || 0),
+        openCount:    acc.openCount    + (r.openCount || 0),
       }),
-      { total: 0, cashGross: 0, cardSales: 0, gst: 0, transactions: 0, grossSum: 0, tipSum: 0, refundDelta: 0, scSum: 0, discSum: 0 }
+      { total: 0, cashGross: 0, cardSales: 0, gst: 0, transactions: 0, grossSum: 0, tipSum: 0, refundDelta: 0, scSum: 0, discSum: 0, openTotal: 0, openCount: 0 }
     );
     const cashSales = cashGross - cashRefunds;
-    // Diagnostic: full composition of total_money so the ~$500 gap can be located.
-    console.log('[Square weekly] SALES:', total.toFixed(2),
-      '| gross(total_money):', grossSum.toFixed(2),
-      '| tips:', tipSum.toFixed(2),
-      '| order refunds:', refundDelta.toFixed(2),
-      '| service charges:', scSum.toFixed(2),
-      '| discounts:', discSum.toFixed(2),
+    // Diagnostics: completed-sales total + what the OPEN/uncompleted orders added.
+    console.log('[Square weekly] SALES(completed):', total.toFixed(2),
+      '| excluded OPEN orders:', openTotal.toFixed(2), `(${openCount})`,
+      '| completed orders:', transactions,
       '| gst:', gst.toFixed(2),
       '| card:', cardSales.toFixed(2), '| cashGross:', cashGross.toFixed(2));
+    console.log('[Square weekly] per-day:', orderResults.map(r => `${r.date}:${(r.total||0).toFixed(0)}`).join('  '));
     return { cashGross, cashRefunds, cashSales, cardSales, total, gst, transactions, paidIn: 0, paidOut: 0 };
   }
 
