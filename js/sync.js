@@ -81,6 +81,33 @@ const Sync = (() => {
     post({ op: 'delItem', coll, id });
   }
 
+  // ── Invoice photos (stored server-side, never in localStorage/snapshot) ──
+  const photoCache = new Map();   // session cache so re-opening doesn't refetch
+
+  async function putPhoto(id, dataUrl) {
+    if (!id || !dataUrl) return false;
+    photoCache.set(id, dataUrl);
+    return post({ op: 'putPhoto', id, value: dataUrl });
+  }
+
+  function delPhoto(id) {
+    if (!id) return;
+    photoCache.delete(id);
+    post({ op: 'delPhoto', id });
+  }
+
+  async function getPhoto(id) {
+    if (!id) return null;
+    if (photoCache.has(id)) return photoCache.get(id);
+    try {
+      const res = await fetch(`${API}?photo=${encodeURIComponent(id)}`, { method: 'GET' });
+      if (!res.ok) return null;
+      const data = await res.json();
+      if (data.dataUrl) photoCache.set(id, data.dataUrl);
+      return data.dataUrl || null;
+    } catch { return null; }
+  }
+
   // Pull the shared snapshot and merge it into localStorage.
   async function pull() {
     if (CONFIG.FEATURES.DEMO_MODE || !available) return;
@@ -154,6 +181,6 @@ const Sync = (() => {
     });
   }
 
-  return { init, pull, pushItem, pushKey, delItem, isConnected: () => connected === true };
+  return { init, pull, pushItem, pushKey, delItem, putPhoto, getPhoto, delPhoto, isConnected: () => connected === true };
 
 })();

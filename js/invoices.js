@@ -10,11 +10,29 @@ const InvoiceModule = (() => {
   let currentWeekStart = Holidays.getWeekStart();
   let editingId = null;     // id of the invoice being edited, or null when creating
   let lastScanIds = null;   // identifiers from the most recent OCR scan (for supplier learning)
+  let photoChanged = false; // true once a new photo is picked this session (vs lazy-loaded)
 
   function init() {
     currentWeekStart = App.getWeek();   // shared across tabs
     renderForm();
     renderWeekNav();
+    loadWeekInvoices();
+    migrateInlinePhotos();
+  }
+
+  // One-off: move any photos still stored inline (in localStorage) up to the
+  // shared store, then strip them locally. This frees the localStorage quota
+  // that older builds filled by keeping base64 photos in the invoice record.
+  async function migrateInlinePhotos() {
+    if (!window.Sync) return;
+    const inline = Store.getInvoices().filter(i => i.photoDataUrl);
+    if (!inline.length) return;
+    for (const inv of inline) {
+      try {
+        const ok = await Sync.putPhoto(inv.id, inv.photoDataUrl);
+        if (ok) Store.updateInvoice(inv.id, { photoDataUrl: undefined, hasPhoto: true });
+      } catch (e) { console.warn('[photo migrate]', inv.id, e.message); }
+    }
     loadWeekInvoices();
   }
 
@@ -69,9 +87,9 @@ const InvoiceModule = (() => {
     const todayBrisbane = new Date().toLocaleDateString('sv-SE', { timeZone: 'Australia/Brisbane' });
     const sendToXero = Store.getSettings().sendToXero !== false;   // default: on
 
-    // When editing, pre-fill from the existing invoice
+    // When editing, pre-fill from the existing invoice. The photo (if any) lives
+    // server-side now and is lazy-loaded into the preview after render.
     const editing = editingId ? Store.getInvoices().find(i => i.id === editingId) : null;
-    if (editing && !photoDataUrl) photoDataUrl = editing.photoDataUrl || null;
     const v = {
       supplier:  editing?.supplier || '',
       invoiceNo: editing?.invoiceNo || '',
@@ -163,6 +181,20 @@ const InvoiceModule = (() => {
     document.getElementById('cancel-edit-btn')?.addEventListener('click', cancelEdit);
     document.getElementById('delete-invoice-btn')?.addEventListener('click', deleteCurrent);
     if (editing) calcGST();   // show ex-GST for the prefilled total
+
+    // Lazy-load this invoice's photo (stored server-side) into the preview.
+    if (editing?.hasPhoto && !photoDataUrl && window.Sync) {
+      Sync.getPhoto(editing.id).then(dataUrl => {
+        if (!dataUrl || editingId !== editing.id) return;
+        photoDataUrl = dataUrl;          // for display + Xero attach; not marked changed
+        const preview = document.getElementById('photo-preview');
+        const placeholder = document.getElementById('photo-placeholder');
+        if (preview)     { preview.src = dataUrl; preview.style.display = 'block'; }
+        if (placeholder) placeholder.style.display = 'none';
+        const zone = document.getElementById('photo-zone');
+        if (zone) zone.style.border = '2px solid var(--green-400)';
+      });
+    }
   }
 
   function deleteCurrent() {
@@ -211,6 +243,7 @@ const InvoiceModule = (() => {
       // within serverless limits, and normalises HEIC/PNG to a format the
       // vision API accepts.
       photoDataUrl = await compressImage(ev.target.result);
+      photoChanged = true;   // a new photo was picked → push it on save
       const preview = document.getElementById('photo-preview');
       const placeholder = document.getElementById('photo-placeholder');
       if (preview)     { preview.src = photoDataUrl; preview.style.display = 'block'; }
@@ -224,7 +257,7 @@ const InvoiceModule = (() => {
 
   // Resize an image dataURL down to maxDim on its longest edge, re-encoded as
   // JPEG. Falls back to the original on any failure.
-  function compressImage(dataUrl, maxDim = 1600, quality = 0.82) {
+  function compressImage(dataUrl, maxDim = 1280, quality = 0.72) {
     return new Promise(resolve => {
       const img = new Image();
       img.onload = () => {
@@ -444,6 +477,11 @@ const InvoiceModule = (() => {
     const invoiceDate = document.getElementById('inv-date')?.value
       || new Date().toLocaleDateString('sv-SE', { timeZone: 'Australia/Brisbane' });
 
+    // Whether this invoice has a photo (stored server-side, not in localStorage).
+    const hasPhoto = editingId
+      ? (photoChanged ? !!photoDataUrl : !!existing?.hasPhoto)
+      : !!photoDataUrl;
+
     const invoiceData = {
       supplier,
       invoiceNo,
@@ -455,14 +493,20 @@ const InvoiceModule = (() => {
       // Cost the invoice into the week of its invoice date, not the entry date,
       // so it's always reported in the period it belongs to.
       date:        invoiceDate,
-      photoDataUrl,
+      hasPhoto,
       // Pass the existing Xero id so the proxy updates that bill instead of creating one
       xeroId:      existing?.xeroId,
     };
 
-    const persist = (extra) => editingId
-      ? Store.updateInvoice(editingId, { ...invoiceData, ...extra })
-      : Store.saveInvoice({ ...invoiceData, ...extra });
+    // Persist metadata and return the invoice id (new or existing).
+    const persist = (extra) => {
+      if (editingId) { Store.updateInvoice(editingId, { ...invoiceData, ...extra }); return editingId; }
+      return Store.saveInvoice({ ...invoiceData, ...extra }).id;
+    };
+    // Push the photo to the shared store (only when a new one was picked).
+    const pushPhoto = (id) => {
+      if (photoChanged && photoDataUrl && id && window.Sync) Sync.putPhoto(id, photoDataUrl);
+    };
 
     // When off, the bill already reaches Xero another way (e.g. email forwarding).
     // We still record it locally so it counts toward COGS/cost reporting.
@@ -470,19 +514,20 @@ const InvoiceModule = (() => {
 
     try {
       if (!sendToXero) {
-        persist({ status: 'local', error: null });
+        pushPhoto(persist({ status: 'local', error: null }));
         App.toast(editingId
           ? `${supplier} updated · $${exGst.toFixed(2)} ex GST`
           : `${supplier} · $${exGst.toFixed(2)} ex GST saved`);
       } else {
         const xeroBill = await XeroAPI.createDraftBill(invoiceData);
         const xeroId = xeroBill?.id || invoiceData.xeroId;
+        const id = persist({ xeroId, status: 'synced', error: null });
+        pushPhoto(id);
         // Append the photo to the Xero bill (best-effort — never blocks the save)
         if (xeroId && photoDataUrl) {
           XeroAPI.attachToBill(xeroId, photoDataUrl, invoiceNo)
             .catch(e => console.warn('[Xero attach]', e.message));
         }
-        persist({ xeroId, status: 'synced', error: null });
         App.toast(editingId
           ? `${supplier} updated · $${exGst.toFixed(2)} ex GST`
           : `${supplier} · $${exGst.toFixed(2)} ex GST sent to Xero`);
@@ -491,7 +536,7 @@ const InvoiceModule = (() => {
       resetForm();
       loadWeekInvoices();
     } catch (err) {
-      persist({ status: 'pending', error: err.message });
+      pushPhoto(persist({ status: 'pending', error: err.message }));
       App.toast(editingId ? 'Updated locally — Xero sync failed' : 'Saved locally — Xero sync failed', 'warning');
       editingId = null;
       resetForm();
@@ -503,6 +548,7 @@ const InvoiceModule = (() => {
 
   function resetForm() {
     photoDataUrl = null;
+    photoChanged = false;
     lastScanIds = null;
     renderForm();
   }
@@ -523,8 +569,8 @@ const InvoiceModule = (() => {
     list.innerHTML = '<div class="card">' + invoices.map(inv => `
       <div class="invoice-item" style="cursor:pointer" onclick="InvoiceModule.startEdit('${inv.id}')" title="Tap to edit">
         <div class="invoice-icon">
-          ${inv.photoDataUrl
-            ? `<img src="${inv.photoDataUrl}" style="width:36px;height:36px;border-radius:var(--r-sm);object-fit:cover">`
+          ${(inv.hasPhoto || inv.photoDataUrl)
+            ? `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="color:var(--green-500)"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"></path><circle cx="12" cy="13" r="4"></circle></svg>`
             : `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline></svg>`
           }
         </div>

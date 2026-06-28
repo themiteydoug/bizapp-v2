@@ -187,6 +187,7 @@ const Store = (() => {
     localStorage.setItem(KEYS.INVOICES, JSON.stringify(all.filter(i => i.id !== id)));
     addTombstone(id);                                   // stops other devices resurrecting it
     try { window.Sync && Sync.delItem('invoices', id); } catch {}
+    try { window.Sync && Sync.delPhoto(id); } catch {}
   }
 
   // ── Tombstones (deleted ids, synced so deletes propagate) ──

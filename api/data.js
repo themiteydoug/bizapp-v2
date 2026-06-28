@@ -66,6 +66,12 @@ module.exports = async (req, res) => {
   }
 
   try {
+    // ── Fetch a single invoice photo by id (kept out of the snapshot) ──
+    if (req.method === 'GET' && req.query.photo) {
+      const out = await kv(['HGET', PREFIX + 'invoicePhotos', String(req.query.photo)]);
+      return res.status(200).json({ id: req.query.photo, dataUrl: out?.result || null });
+    }
+
     // ── Pull the full shared snapshot ──
     if (req.method === 'GET') {
       const cmds = [
@@ -115,6 +121,18 @@ module.exports = async (req, res) => {
           return res.status(400).json({ error: 'bad delItem' });
         }
         await kv(['HDEL', PREFIX + body.coll, String(body.id)]);
+        return res.status(200).json({ ok: true });
+      }
+
+      // Invoice photos live in their own hash, fetched by id (never in the snapshot).
+      if (op === 'putPhoto') {
+        if (body.id == null || body.value == null) return res.status(400).json({ error: 'bad putPhoto' });
+        await kv(['HSET', PREFIX + 'invoicePhotos', String(body.id), String(body.value)]);
+        return res.status(200).json({ ok: true });
+      }
+      if (op === 'delPhoto') {
+        if (body.id == null) return res.status(400).json({ error: 'bad delPhoto' });
+        await kv(['HDEL', PREFIX + 'invoicePhotos', String(body.id)]);
         return res.status(200).json({ ok: true });
       }
 
