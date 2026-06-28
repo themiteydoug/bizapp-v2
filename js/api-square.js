@@ -89,39 +89,24 @@ const SquareAPI = (() => {
     // Square "Total Sales"/"Total payments collected" excludes CANCELLED orders
     // (voided payments) but DOES include paid OPEN orders (e.g. delivery via
     // "Other"). Refunds are netted at the weekly level, not here.
-    const paid   = (data.orders || []).filter(o => o.tenders?.length > 0);
-    const orders = paid.filter(o => o.state !== 'CANCELED');
-    let canceledTotal = 0, canceledCount = 0;
-    paid.forEach(o => {
-      if (o.state === 'CANCELED') { canceledTotal += (o.total_money?.amount || 0) / 100; canceledCount++; }
-    });
+    const orders = (data.orders || []).filter(o => o.tenders?.length > 0 && o.state !== 'CANCELED');
     let total = 0, cash = 0, card = 0, gst = 0;
-    let grossSum = 0, tipSum = 0, refundDelta = 0, scSum = 0, discSum = 0;   // diagnostics
     orders.forEach(o => {
-      const net        = o.net_amounts || {};
-      const grossTotal = (o.total_money?.amount || 0) / 100;                          // incl tax + tips, before refunds
-      const netTotal   = (net.total_money?.amount ?? o.total_money?.amount ?? 0) / 100; // after refunds/returns
-      const tip        = (net.tip_money?.amount  ?? o.total_tip_money?.amount ?? 0) / 100;
-      const sc         = (net.service_charge_money?.amount ?? o.total_service_charge_money?.amount ?? 0) / 100;
-      const disc       = (net.discount_money?.amount ?? o.total_discount_money?.amount ?? 0) / 100;
-      // Weekly SALES = GST-inclusive, net of refunds, EXCLUDING tips (tips aren't
-      // sales). total_money would over-count by tips + any refunds.
+      const net      = o.net_amounts || {};
+      const netTotal = (net.total_money?.amount ?? o.total_money?.amount ?? 0) / 100; // after refunds/returns
+      const tip      = (net.tip_money?.amount  ?? o.total_tip_money?.amount ?? 0) / 100;
+      // GST-inclusive sales, net of refunds, excluding tips. (The weekly cash/card
+      // totals come from the Payments API; this 'total' is the per-day fallback.)
       total += netTotal - tip;
-      grossSum += grossTotal; tipSum += tip; refundDelta += (grossTotal - netTotal);
-      scSum += sc; discSum += disc;
-      // GST collected on this order. Use net_amounts.tax_money (tax after any
-      // returns/refunds) so the figure matches Square's "Taxes" line, which is
-      // net of refunds; fall back to total_tax_money when net isn't present.
-      gst += (o.net_amounts?.tax_money?.amount ?? o.total_tax_money?.amount ?? 0) / 100;
-      const tenders = o.tenders || [];
-      const tenderType = {};
-      tenders.forEach(t => {
-        tenderType[t.id] = t.type;
+      // GST: use net_amounts.tax_money (net of returns) so it matches Square's
+      // "Taxes" line; fall back to total_tax_money when net isn't present.
+      gst += (net.tax_money?.amount ?? o.total_tax_money?.amount ?? 0) / 100;
+      (o.tenders || []).forEach(t => {
         if (t.type === 'CASH') cash += (t.amount_money?.amount || 0) / 100;
         else                   card += (t.amount_money?.amount || 0) / 100;
       });
     });
-    return { date: dateStr, total, cash, card, gst, transactions: orders.length, grossSum, tipSum, refundDelta, scSum, discSum, canceledTotal, canceledCount };
+    return { date: dateStr, total, cash, card, gst, transactions: orders.length };
   }
 
   // Fetch cash refunds for the week from Square's /v2/refunds endpoint.
@@ -136,7 +121,6 @@ const SquareAPI = (() => {
     const sum = list => list.reduce((s, r) => s + (r.amount_money?.amount || 0) / 100, 0);
     const total = sum(refunds);
     const cash  = sum(refunds.filter(r => r.destination_type === 'CASH'));
-    console.log('[Square refunds] count:', refunds.length, '| total:', total.toFixed(2), '| cash:', cash.toFixed(2));
     return { total, cash };
   }
 
@@ -287,11 +271,6 @@ const SquareAPI = (() => {
     const cardSales = cardGross - cardRefunds;
     const total     = cashSales + cardSales;
     const gst = agg.gst, transactions = agg.transactions;
-    console.log('[Square weekly] SALES:', total.toFixed(2),
-      '| card:', cardSales.toFixed(2), '| cash:', cashSales.toFixed(2),
-      '| refunds:', totalRefunds.toFixed(2), '(cash', cashRefunds.toFixed(2) + ')',
-      '| payments:', payments ? `${payments.completed}/${payments.seen} completed` : 'fallback to orders',
-      '| gst:', gst.toFixed(2));
     return { cashGross, cashRefunds, cashSales, cardSales, total, gst, transactions, paidIn: 0, paidOut: 0 };
   }
 
