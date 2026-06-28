@@ -722,6 +722,18 @@ const XeroAPI = (() => {
     return OVERHEAD_EXCLUDE_KEYWORDS.some(kw => lower.includes(kw));
   }
 
+  // Account-name fragments to ALWAYS include in overheads, even when they sit in
+  // the Cost of Sales section rather than Operating Expenses. "Oil" arrives by
+  // email (never entered as an app invoice), so it isn't in the COGS cycle and
+  // would otherwise be missed entirely. Word-boundary match so "oil" doesn't
+  // accidentally catch e.g. "boiler".
+  const OVERHEAD_INCLUDE_KEYWORDS = ['oil'];
+
+  function isForceIncludedInOverhead(accountName) {
+    const lower = (accountName || '').toLowerCase();
+    return OVERHEAD_INCLUDE_KEYWORDS.some(kw => new RegExp(`\\b${kw}\\b`, 'i').test(lower));
+  }
+
   /**
    * Fetches the Xero P&L from 1 July of the previous calendar year up to the
    * end of the previous week, and returns the weekly average of operating
@@ -764,21 +776,21 @@ const XeroAPI = (() => {
     const report = data?.Reports?.[0];
     if (!report) throw new Error('No P&L data returned from Xero');
 
-    // Sum the operating-expense section, excluding wages/super.
-    // "Cost of Sales" is a separate section (title doesn't match /expense/i),
-    // so COGS is not included here — it's tracked separately from invoices.
-    const expenseSection = report.Rows?.find(
-      r => r.RowType === 'Section' && /expense/i.test(r.Title || '')
-    );
+    // Walk every P&L section. Count operating-expense accounts (excluding
+    // wages/leave + COGS items), PLUS any force-included account (e.g. Oil) no
+    // matter which section it lives in. "Cost of Sales" otherwise stays out —
+    // it's tracked separately from the entered invoices.
     let total = 0;
-    if (expenseSection) {
-      for (const row of expenseSection.Rows || []) {
+    for (const section of report.Rows || []) {
+      if (section.RowType !== 'Section') continue;
+      const isExpenseSection = /expense/i.test(section.Title || '');
+      for (const row of section.Rows || []) {
         if (row.RowType !== 'Row') continue;
         const name   = row.Cells?.[0]?.Value || '';
         const amount = parseFloat(row.Cells?.[1]?.Value || '0');
-        if (isExcludedFromOverhead(name)) continue;   // wages/leave + COGS items
         if (!amount) continue;
-        total += amount;
+        if (isForceIncludedInOverhead(name)) { total += amount; continue; }   // e.g. Oil
+        if (isExpenseSection && !isExcludedFromOverhead(name)) total += amount;
       }
     }
 
