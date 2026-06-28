@@ -86,10 +86,13 @@ body {
 
 /* Header */
 #app-header {
-  height: var(--header-h);
+  /* Height = the bar itself PLUS the iOS status-bar/notch inset, so the inner
+     content sits fully below the status bar in standalone (home-screen) mode.
+     (With border-box, baking the inset into a fixed height squashed the bar.) */
+  height: calc(var(--header-h) + env(safe-area-inset-top, 0px));
   background: var(--green-900);
   flex-shrink: 0;
-  padding: env(safe-area-inset-top, 0) 0 0;
+  padding-top: env(safe-area-inset-top, 0px);
   z-index: 10;
 }
 

@@ -258,8 +258,13 @@ const InvoiceModule = (() => {
     '"totalIncGst": number, "gst": number, ' +
     '"abn": string, "phone": string, "bpayBiller": string, "bankAccount": string, ' +
     '"email": string, "addressLine": string}\n' +
-    'totalIncGst is the grand total payable including GST. gst is the GST/tax amount; ' +
+    'totalIncGst is the grand total payable including GST (prefer a line labelled ' +
+    'Total, Amount Due, Amount Payable, or Balance). gst is the GST/tax amount; ' +
     'if not shown, set it to null. invoiceDate is the invoice/issue date.\n' +
+    'IMPORTANT about money: a leading "$" is a dollar SIGN, never a digit — read ' +
+    '"$300.00" as 300.00 (not 1300 or 4300). Return amounts as plain numbers with ' +
+    'no "$" or commas. GST on a GST-inclusive total is at most one-eleventh of it, ' +
+    'so sanity-check that gst is not larger than totalIncGst ÷ 11.\n' +
     'The identifier fields help recognise the supplier even when their name is not printed: ' +
     'abn = the 11-digit Australian Business Number; phone = a business phone number; ' +
     'bpayBiller = the BPAY biller code; bankAccount = BSB and account number; ' +
