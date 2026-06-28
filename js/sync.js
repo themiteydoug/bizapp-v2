@@ -67,11 +67,22 @@ const Sync = (() => {
     post({ op: 'putItem', coll, id: item.id, value: item });
   }
 
+  // Singletons with a local edit that the server hasn't confirmed yet. While a
+  // key is "dirty" a pull must NOT overwrite the local copy (that would wipe a
+  // fresh edit, e.g. a manager's timesheet hour change). Cleared once the server
+  // acknowledges the exact value we sent.
+  const dirtyKeys = new Set();
+
   // Mirror a whole singleton (settings / tsAdjustments / staff / fingerprints /
   // tombstones) to the server.
   function pushKey(key, value) {
     if (!(SINGLETONS.includes(key) || key === 'tombstones') || value == null) return;
-    post({ op: 'putKey', key, value });
+    dirtyKeys.add(key);
+    const sent = JSON.stringify(value);
+    post({ op: 'putKey', key, value }).then(ok => {
+      // Only clear dirty if no newer local edit happened while this was in flight.
+      if (ok && localStorage.getItem(LS[key]) === sent) dirtyKeys.delete(key);
+    });
   }
 
   // Delete a collection item on the server (HDEL). The id is also tombstoned
@@ -153,8 +164,15 @@ const Sync = (() => {
     }
 
     // Singletons: server overwrites local when present; if the server has none
-    // yet, seed it from this device's local copy.
+    // yet, seed it from this device's local copy. A locally-edited (dirty) key is
+    // never overwritten — we keep the local value and re-push until confirmed, so
+    // unsynced edits (e.g. timesheet adjustments) are never lost.
     for (const key of SINGLETONS) {
+      if (dirtyKeys.has(key)) {
+        const localRaw = localStorage.getItem(LS[key]);
+        if (localRaw) { try { pushKey(key, JSON.parse(localRaw)); } catch {} }
+        continue;
+      }
       const serverVal = snap[key];
       if (serverVal != null) {
         const next = JSON.stringify(serverVal);
