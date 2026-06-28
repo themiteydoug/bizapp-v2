@@ -140,6 +140,34 @@ const SquareAPI = (() => {
     return { total, cash };
   }
 
+  // Sum COMPLETED payments for the week from Square's Payments API — this is the
+  // authoritative "money captured" basis (a payment carries a real status, so
+  // voided/cancelled tenders are excluded but captured ones on otherwise-cancelled
+  // orders are kept). source_type CASH → cash; everything else (CARD, EXTERNAL/
+  // "Other" delivery, WALLET…) → card. Refunds are netted separately.
+  async function fetchWeeklyPayments(weekStart, weekEnd) {
+    let cursor = null, cash = 0, card = 0, completed = 0, seen = 0, guard = 0;
+    do {
+      const params = {
+        begin_time: weekStart + 'T00:00:00+10:00',
+        end_time:   weekEnd   + 'T23:59:59+10:00',
+        sort_order: 'ASC',
+        limit: 100,
+      };
+      if (cursor) params.cursor = cursor;
+      const data = await proxyFetch('/payments', 'GET', null, params);
+      (data.payments || []).forEach(p => {
+        seen++;
+        if (p.status !== 'COMPLETED') return;
+        completed++;
+        const amt = (p.amount_money?.amount || 0) / 100;
+        if (p.source_type === 'CASH') cash += amt; else card += amt;
+      });
+      cursor = data.cursor || null;
+    } while (cursor && ++guard < 25);
+    return { cash, card, completed, seen };
+  }
+
   async function fetchTimesheetsReal(weekStart, weekEnd) {
     // Square Team Plus Legacy: POST /labor/timecards/search
     const data = await proxyFetch('/labor/timecards/search', 'POST', {
@@ -233,37 +261,38 @@ const SquareAPI = (() => {
     for (let d = new Date(start); d <= end; d.setUTCDate(d.getUTCDate() + 1)) {
       days.push(d.toISOString().slice(0, 10));
     }
-    const [orderResults, refunds] = await Promise.all([
+    const [orderResults, refunds, payments] = await Promise.all([
       Promise.all(days.map(ds => fetchTakingsReal(ds).catch(() => ({ total: 0, cash: 0, card: 0, gst: 0, transactions: 0, canceledTotal: 0, canceledCount: 0 })))),
       fetchWeeklyRefunds(weekStart, weekEnd).catch(() => ({ total: 0, cash: 0 })),
+      fetchWeeklyPayments(weekStart, weekEnd).catch(() => null),
     ]);
     const agg = orderResults.reduce(
       (acc, r) => ({
-        cashGross:     acc.cashGross     + (r.cash  || 0),
-        cardGross:     acc.cardGross     + (r.card  || 0),
-        gst:           acc.gst           + (r.gst   || 0),
-        transactions:  acc.transactions  + (r.transactions || 0),
-        canceledTotal: acc.canceledTotal + (r.canceledTotal || 0),
-        canceledCount: acc.canceledCount + (r.canceledCount || 0),
+        cashGross:    acc.cashGross    + (r.cash  || 0),
+        cardGross:    acc.cardGross    + (r.card  || 0),
+        gst:          acc.gst          + (r.gst   || 0),
+        transactions: acc.transactions + (r.transactions || 0),
       }),
-      { cashGross: 0, cardGross: 0, gst: 0, transactions: 0, canceledTotal: 0, canceledCount: 0 }
+      { cashGross: 0, cardGross: 0, gst: 0, transactions: 0 }
     );
-    // Weekly sales = Square "Total payments collected": tenders (excl. cancelled
-    // orders) netted by refunds, split cash vs card. Matches Square "Total Sales".
+    // Weekly sales = Square "Total payments collected": COMPLETED payments
+    // (cash vs card/Other) netted by refunds. Use the Payments API when available
+    // (captured-money basis); fall back to order tenders if it fails.
+    const cashGross = payments ? payments.cash : agg.cashGross;
+    const cardGross = payments ? payments.card : agg.cardGross;
     const cashRefunds  = refunds.cash  || 0;
     const totalRefunds = refunds.total || 0;
     const cardRefunds  = Math.max(0, totalRefunds - cashRefunds);
-    const cashSales = agg.cashGross - cashRefunds;
-    const cardSales = agg.cardGross - cardRefunds;
+    const cashSales = cashGross - cashRefunds;
+    const cardSales = cardGross - cardRefunds;
     const total     = cashSales + cardSales;
     const gst = agg.gst, transactions = agg.transactions;
     console.log('[Square weekly] SALES:', total.toFixed(2),
       '| card:', cardSales.toFixed(2), '| cash:', cashSales.toFixed(2),
       '| refunds:', totalRefunds.toFixed(2), '(cash', cashRefunds.toFixed(2) + ')',
-      '| excluded CANCELLED:', agg.canceledTotal.toFixed(2), `(${agg.canceledCount})`,
-      '| orders:', transactions, '| gst:', gst.toFixed(2));
-    console.log('[Square weekly] per-day:', orderResults.map(r => `${r.date}:${(r.total||0).toFixed(0)}`).join('  '));
-    return { cashGross: agg.cashGross, cashRefunds, cashSales, cardSales, total, gst, transactions, paidIn: 0, paidOut: 0 };
+      '| payments:', payments ? `${payments.completed}/${payments.seen} completed` : 'fallback to orders',
+      '| gst:', gst.toFixed(2));
+    return { cashGross, cashRefunds, cashSales, cardSales, total, gst, transactions, paidIn: 0, paidOut: 0 };
   }
 
   async function getStaffList() {
