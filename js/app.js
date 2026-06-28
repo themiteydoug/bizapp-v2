@@ -233,7 +233,7 @@ const App = (() => {
         <div class="settings-group-label">About</div>
         <div class="settings-item">
           <span class="settings-item-label">Version</span>
-          <span class="settings-item-value">2.0.0</span>
+          <span class="settings-item-value">v${CONFIG.VERSION} · build ${CONFIG.BUILD}</span>
         </div>
         <div class="settings-item">
           <span class="settings-item-label">Mode</span>
