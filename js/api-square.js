@@ -89,8 +89,16 @@ const SquareAPI = (() => {
     // Any order with tenders has been paid — captures COMPLETED and paid OPEN orders
     const orders = (data.orders || []).filter(o => o.tenders?.length > 0);
     let total = 0, cash = 0, card = 0, gst = 0;
+    let grossSum = 0, tipSum = 0, refundDelta = 0;   // for diagnostics
     orders.forEach(o => {
-      total += (o.total_money?.amount || 0) / 100;
+      const net        = o.net_amounts || {};
+      const grossTotal = (o.total_money?.amount || 0) / 100;                          // incl tax + tips, before refunds
+      const netTotal   = (net.total_money?.amount ?? o.total_money?.amount ?? 0) / 100; // after refunds/returns
+      const tip        = (net.tip_money?.amount  ?? o.total_tip_money?.amount ?? 0) / 100;
+      // Weekly SALES = GST-inclusive, net of refunds, EXCLUDING tips (tips aren't
+      // sales). total_money would over-count by tips + any refunds.
+      total += netTotal - tip;
+      grossSum += grossTotal; tipSum += tip; refundDelta += (grossTotal - netTotal);
       // GST collected on this order. Use net_amounts.tax_money (tax after any
       // returns/refunds) so the figure matches Square's "Taxes" line, which is
       // net of refunds; fall back to total_tax_money when net isn't present.
@@ -103,7 +111,7 @@ const SquareAPI = (() => {
         else                   card += (t.amount_money?.amount || 0) / 100;
       });
     });
-    return { date: dateStr, total, cash, card, gst, transactions: orders.length };
+    return { date: dateStr, total, cash, card, gst, transactions: orders.length, grossSum, tipSum, refundDelta };
   }
 
   // Fetch cash refunds for the week from Square's /v2/refunds endpoint.
@@ -216,21 +224,29 @@ const SquareAPI = (() => {
       days.push(d.toISOString().slice(0, 10));
     }
     const [orderResults, cashRefunds] = await Promise.all([
-      Promise.all(days.map(ds => fetchTakingsReal(ds).catch(() => ({ total: 0, cash: 0, card: 0, gst: 0, transactions: 0 })))),
+      Promise.all(days.map(ds => fetchTakingsReal(ds).catch(() => ({ total: 0, cash: 0, card: 0, gst: 0, transactions: 0, grossSum: 0, tipSum: 0, refundDelta: 0 })))),
       fetchWeeklyRefunds(weekStart, weekEnd).catch(() => 0),
     ]);
-    const { total, cashGross, cardSales, gst, transactions } = orderResults.reduce(
+    const { total, cashGross, cardSales, gst, transactions, grossSum, tipSum, refundDelta } = orderResults.reduce(
       (acc, r) => ({
         total:        acc.total        + (r.total || 0),
         cashGross:    acc.cashGross    + (r.cash  || 0),
         cardSales:    acc.cardSales    + (r.card  || 0),
         gst:          acc.gst          + (r.gst   || 0),
         transactions: acc.transactions + (r.transactions || 0),
+        grossSum:     acc.grossSum     + (r.grossSum || 0),
+        tipSum:       acc.tipSum       + (r.tipSum || 0),
+        refundDelta:  acc.refundDelta  + (r.refundDelta || 0),
       }),
-      { total: 0, cashGross: 0, cardSales: 0, gst: 0, transactions: 0 }
+      { total: 0, cashGross: 0, cardSales: 0, gst: 0, transactions: 0, grossSum: 0, tipSum: 0, refundDelta: 0 }
     );
     const cashSales = cashGross - cashRefunds;
-    console.log('[Square weekly] cashGross:', cashGross.toFixed(2), '| cashRefunds:', cashRefunds.toFixed(2), '| net:', cashSales.toFixed(2), '| gst:', gst.toFixed(2));
+    // Diagnostic: weekly sales = gross(total_money) − tips − refunds. Compare to Square.
+    console.log('[Square weekly] SALES:', total.toFixed(2),
+      '| gross(total_money):', grossSum.toFixed(2),
+      '| tips removed:', tipSum.toFixed(2),
+      '| order refunds removed:', refundDelta.toFixed(2),
+      '| gst:', gst.toFixed(2));
     return { cashGross, cashRefunds, cashSales, cardSales, total, gst, transactions, paidIn: 0, paidOut: 0 };
   }
 
