@@ -351,12 +351,23 @@ const CashModule = (() => {
     section.querySelector('#wk-prev-week').addEventListener('click', () => weeklyNav(-1));
     section.querySelector('#wk-next-week').addEventListener('click', () => weeklyNav(1));
     section.querySelector('#wk-recount-input').addEventListener('input', onRecountInput);
+    // Auto-persist the recount/notes on blur so they survive navigation & reload.
+    section.querySelector('#wk-recount-input').addEventListener('change', () => persistWeekly(true));
+    section.querySelector('#wk-notes')?.addEventListener('change', () => persistWeekly(true));
     document.getElementById('save-weekly-btn')?.addEventListener('click', saveWeekly);
   }
 
   async function loadWeeklyData() {
     const weekEnd = Holidays.getWeekEnd(weeklyWeekStart);
     setEl('weekly-week-label', Holidays.formatWeekLabel(weeklyWeekStart));
+
+    // Restore a previously saved recount + notes for this week so they persist.
+    const savedWeekly = Store.getWeeklyRec(weeklyWeekStart);
+    const recountInput = document.getElementById('wk-recount-input');
+    const notesInput   = document.getElementById('wk-notes');
+    if (recountInput) recountInput.value = savedWeekly?.recount ? savedWeekly.recount : '';
+    if (notesInput)   notesInput.value   = savedWeekly?.notes || '';
+    onRecountInput();
 
     const allRecs  = Store.getCashRecs().filter(r => r.type === 'daily');
     const weekRecs = allRecs.filter(r => r.date >= weeklyWeekStart && r.date <= weekEnd);
@@ -469,13 +480,15 @@ const CashModule = (() => {
     loadWeeklyData();
   }
 
-  function saveWeekly() {
+  // Upsert this week's banking rec (one per week). silent = auto-save on edit
+  // (no toast); the explicit Save button shows the balanced/difference toast.
+  function persistWeekly(silent) {
     const dailyTotal  = parseFloat(document.getElementById('wk-total-banked')?.textContent?.replace('$', ''))   || 0;
     const recount     = parseFloat(document.getElementById('wk-recount-input')?.value)                          || 0;
     const squareCash  = parseFloat(document.getElementById('wk-sq-cash')?.textContent?.replace('$', ''))        || 0;
     const finalTotal  = recount || dailyTotal;
     const variance    = finalTotal - squareCash;
-    Store.saveCashRec({
+    Store.saveWeeklyRec({
       type:         'weekly',
       weekStart:    weeklyWeekStart,
       weekEnd:      Holidays.getWeekEnd(weeklyWeekStart),
@@ -486,9 +499,13 @@ const CashModule = (() => {
       variance,
       notes:        document.getElementById('wk-notes')?.value || '',
     });
-    const abs = Math.abs(variance);
-    App.toast(abs < 0.05 ? 'Weekly banking saved — balanced ✓' : `Weekly banking saved — difference $${abs.toFixed(2)}`);
+    if (!silent) {
+      const abs = Math.abs(variance);
+      App.toast(abs < 0.05 ? 'Weekly banking saved — balanced ✓' : `Weekly banking saved — difference $${abs.toFixed(2)}`);
+    }
   }
+
+  function saveWeekly() { persistWeekly(false); }
 
   // ── Helpers ───────────────────────────────────
 

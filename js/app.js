@@ -395,3 +395,7 @@ const App = (() => {
   return { nav, toast, openSettings, refreshSettings, applyRoleUI, getWeek, setWeek, onDataChanged, onSyncStatus };
 
 })();
+
+// Expose on window — sync.js / api-xero.js reference `window.App` (a top-level
+// `const` is not a window property in classic scripts).
+window.App = App;

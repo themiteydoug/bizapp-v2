@@ -231,6 +231,24 @@ const Store = (() => {
     return r;
   }
 
+  // Weekly banking rec — one per week. Upsert by weekStart so re-saving updates
+  // the same record (and syncs) instead of piling up duplicates.
+  function getWeeklyRec(weekStart) {
+    return getCashRecs().find(r => r.type === 'weekly' && r.weekStart === weekStart) || null;
+  }
+
+  function saveWeeklyRec(rec) {
+    const all = getCashRecs();
+    const idx = all.findIndex(r => r.type === 'weekly' && r.weekStart === rec.weekStart);
+    if (idx >= 0) {
+      all[idx] = { ...all[idx], ...rec, id: all[idx].id, updatedAt: new Date().toISOString() };
+      localStorage.setItem(KEYS.CASH_RECS, JSON.stringify(all));
+      mirrorItem('cashRecs', all[idx]);
+      return all[idx];
+    }
+    return saveCashRec({ ...rec, updatedAt: new Date().toISOString() });
+  }
+
   // ── Timesheet push log ─────────────────────────
 
   function getTsPushes() {
@@ -311,7 +329,7 @@ const Store = (() => {
     getInvoices, saveInvoice, updateInvoice, deleteInvoice,
     getTombstones,
     getSupplierFingerprints, saveSupplierFingerprints,
-    getCashRecs, saveCashRec,
+    getCashRecs, saveCashRec, getWeeklyRec, saveWeeklyRec,
     getTsPushes, logTsPush, getLastPushForWeek,
     getTsAdjustments, saveTsAdjustment,
     getXeroTokens, saveXeroTokens, clearXeroTokens,

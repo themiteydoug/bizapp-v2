@@ -202,3 +202,7 @@ const Sync = (() => {
   return { init, pull, pushItem, pushKey, delItem, putPhoto, getPhoto, delPhoto, isConnected: () => connected === true };
 
 })();
+
+// `const` at top level does NOT attach to window in classic scripts; other
+// modules reference `window.Sync`, so expose it explicitly.
+window.Sync = Sync;
