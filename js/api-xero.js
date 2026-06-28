@@ -73,23 +73,49 @@ const XeroAPI = (() => {
     return Date.now() > (tokens.savedAt + tokens.expires_in * 1000) - 60_000; // 1 min buffer
   }
 
+  // Single-flight token refresh. Xero refresh tokens are single-use (each
+  // refresh rotates the token), so concurrent callers MUST share one refresh —
+  // otherwise the losers use a now-invalidated token and the session is killed.
+  let _refreshPromise = null;
+
   async function ensureFreshToken() {
     if (!isTokenExpired()) return;
-    const rt = getRefreshToken();
-    if (!rt) throw new Error('Xero session expired — please reconnect in Settings');
-    try {
-      const res = await fetch(CONFIG.API.XERO_AUTH, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'refresh', refresh_token: rt }),
-      });
-      if (!res.ok) throw new Error('Token refresh failed');
-      const data = await res.json();
-      Store.saveXeroTokens(data);
-    } catch (e) {
-      Store.clearXeroTokens();
-      throw new Error('Xero reconnection required — go to Settings → Connect Xero');
-    }
+    if (_refreshPromise) return _refreshPromise;   // share the in-flight refresh
+
+    _refreshPromise = (async () => {
+      if (!isTokenExpired()) return;               // another caller just refreshed
+      const rt = getRefreshToken();
+      if (!rt) throw new Error('Xero session expired — please reconnect in Settings');
+
+      let res;
+      try {
+        res = await fetch(CONFIG.API.XERO_AUTH, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ action: 'refresh', refresh_token: rt }),
+        });
+      } catch (e) {
+        // Network blip — keep the tokens so a later call can retry, don't log out.
+        throw new Error('Network error refreshing Xero — please try again');
+      }
+
+      if (res.ok) {
+        const data = await res.json();
+        if (data && data.access_token) { Store.saveXeroTokens(data); return; }
+        throw new Error('Xero refresh returned no token — please try again');
+      }
+
+      // Only a genuinely invalid/expired refresh token (Xero replies 400/401)
+      // should force a reconnect. Anything else is treated as transient.
+      if (res.status === 400 || res.status === 401) {
+        Store.clearXeroTokens();
+        throw new Error('Xero reconnection required — go to Settings → Connect Xero');
+      }
+      throw new Error('Xero refresh failed — please try again');
+    })();
+
+    try { await _refreshPromise; }
+    finally { _refreshPromise = null; }
   }
 
   // ── Proxy fetch ───────────────────────────────
