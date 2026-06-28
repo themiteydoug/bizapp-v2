@@ -13,6 +13,8 @@ const Store = (() => {
     TS_ADJUST:   'bizops_ts_adjustments',
     XERO_TOKENS: 'bizops_xero_tokens',
     SETTINGS:    'bizops_settings',
+    SUPPLIER_FP: 'bizops_supplier_fp',
+    TOMBSTONES:  'bizops_tombstones',
   };
 
   // ── Staff ──────────────────────────────────────
@@ -180,6 +182,35 @@ const Store = (() => {
     }
   }
 
+  function deleteInvoice(id) {
+    const all = JSON.parse(localStorage.getItem(KEYS.INVOICES) || '[]');
+    localStorage.setItem(KEYS.INVOICES, JSON.stringify(all.filter(i => i.id !== id)));
+    addTombstone(id);                                   // stops other devices resurrecting it
+    try { window.Sync && Sync.delItem('invoices', id); } catch {}
+  }
+
+  // ── Tombstones (deleted ids, synced so deletes propagate) ──
+
+  function getTombstones() {
+    return JSON.parse(localStorage.getItem(KEYS.TOMBSTONES) || '[]');
+  }
+
+  function addTombstone(id) {
+    const t = getTombstones();
+    if (!t.includes(id)) { t.push(id); localStorage.setItem(KEYS.TOMBSTONES, JSON.stringify(t)); mirrorKey('tombstones', t); }
+  }
+
+  // ── Supplier fingerprints (learned name ↔ identifiers) ──
+
+  function getSupplierFingerprints() {
+    return JSON.parse(localStorage.getItem(KEYS.SUPPLIER_FP) || '[]');
+  }
+
+  function saveSupplierFingerprints(list) {
+    localStorage.setItem(KEYS.SUPPLIER_FP, JSON.stringify(list));
+    mirrorKey('supplierFingerprints', list);
+  }
+
   // ── Cash reconciliations ───────────────────────
 
   function getCashRecs() {
@@ -276,7 +307,9 @@ const Store = (() => {
 
   return {
     getStaff, saveStaff, updateStaffMember,
-    getInvoices, saveInvoice, updateInvoice,
+    getInvoices, saveInvoice, updateInvoice, deleteInvoice,
+    getTombstones,
+    getSupplierFingerprints, saveSupplierFingerprints,
     getCashRecs, saveCashRec,
     getTsPushes, logTsPush, getLastPushForWeek,
     getTsAdjustments, saveTsAdjustment,

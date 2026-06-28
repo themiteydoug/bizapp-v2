@@ -24,7 +24,7 @@ const KV_TOKEN = process.env.KV_REST_API_TOKEN || process.env.UPSTASH_REDIS_REST
 
 const PREFIX      = 'pcw:';
 const COLLECTIONS = ['invoices', 'cashRecs', 'tsPushes'];      // Redis hashes
-const SINGLETONS  = ['settings', 'tsAdjustments', 'staff'];    // Redis string keys
+const SINGLETONS  = ['settings', 'tsAdjustments', 'staff', 'supplierFingerprints', 'tombstones']; // Redis string keys
 
 function cors(res) {
   res.setHeader('Access-Control-Allow-Origin', ALLOWED_ORIGIN);
@@ -107,6 +107,14 @@ module.exports = async (req, res) => {
           return res.status(400).json({ error: 'bad putKey' });
         }
         await kv(['SET', PREFIX + body.key, JSON.stringify(body.value)]);
+        return res.status(200).json({ ok: true });
+      }
+
+      if (op === 'delItem') {
+        if (!COLLECTIONS.includes(body.coll) || body.id == null) {
+          return res.status(400).json({ error: 'bad delItem' });
+        }
+        await kv(['HDEL', PREFIX + body.coll, String(body.id)]);
         return res.status(200).json({ ok: true });
       }
 

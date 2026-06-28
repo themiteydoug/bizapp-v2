@@ -20,15 +20,17 @@ const Sync = (() => {
 
   // server snapshot key → localStorage key
   const LS = {
-    invoices:      'bizops_invoices',
-    cashRecs:      'bizops_cash_recs',
-    tsPushes:      'bizops_ts_pushes',
-    settings:      'bizops_settings',
-    tsAdjustments: 'bizops_ts_adjustments',
-    staff:         'bizops_staff',
+    invoices:             'bizops_invoices',
+    cashRecs:             'bizops_cash_recs',
+    tsPushes:             'bizops_ts_pushes',
+    settings:             'bizops_settings',
+    tsAdjustments:        'bizops_ts_adjustments',
+    staff:                'bizops_staff',
+    supplierFingerprints: 'bizops_supplier_fp',
+    tombstones:           'bizops_tombstones',
   };
   const COLLECTIONS = ['invoices', 'cashRecs', 'tsPushes'];
-  const SINGLETONS  = ['settings', 'tsAdjustments', 'staff'];
+  const SINGLETONS  = ['settings', 'tsAdjustments', 'staff', 'supplierFingerprints'];
 
   let timer = null;
   let available = true;   // flips false if the server says it's not configured
@@ -65,10 +67,18 @@ const Sync = (() => {
     post({ op: 'putItem', coll, id: item.id, value: item });
   }
 
-  // Mirror a whole singleton (settings / tsAdjustments / staff) to the server.
+  // Mirror a whole singleton (settings / tsAdjustments / staff / fingerprints /
+  // tombstones) to the server.
   function pushKey(key, value) {
-    if (!SINGLETONS.includes(key) || value == null) return;
+    if (!(SINGLETONS.includes(key) || key === 'tombstones') || value == null) return;
     post({ op: 'putKey', key, value });
+  }
+
+  // Delete a collection item on the server (HDEL). The id is also tombstoned
+  // locally by Store so it isn't re-created on the next merge.
+  function delItem(coll, id) {
+    if (!COLLECTIONS.includes(coll) || !id) return;
+    post({ op: 'delItem', coll, id });
   }
 
   // Pull the shared snapshot and merge it into localStorage.
@@ -85,16 +95,28 @@ const Sync = (() => {
 
     let changed = false;
 
+    // Tombstones (deleted ids): union local + server so a deletion on any device
+    // is honoured everywhere and never resurrected.
+    const serverTomb = Array.isArray(snap.tombstones) ? snap.tombstones : [];
+    const localTomb  = JSON.parse(localStorage.getItem(LS.tombstones) || '[]');
+    const tomb       = Array.from(new Set([...localTomb, ...serverTomb]));
+    const tombSet    = new Set(tomb);
+    if (JSON.stringify(tomb) !== JSON.stringify(localTomb)) {
+      localStorage.setItem(LS.tombstones, JSON.stringify(tomb));
+    }
+    if (tomb.length > serverTomb.length) pushKey('tombstones', tomb);   // seed server
+
     // Collections: union by id (server wins per id; keep local-only items and
-    // re-push them so a failed write self-heals). Nothing is ever deleted.
+    // re-push them so a failed write self-heals). Tombstoned ids are dropped
+    // and never re-created.
     for (const coll of COLLECTIONS) {
       if (!Array.isArray(snap[coll])) continue;
       const local = JSON.parse(localStorage.getItem(LS[coll]) || '[]');
       const byId = new Map();
-      for (const it of snap[coll]) if (it?.id) byId.set(it.id, it);
+      for (const it of snap[coll]) if (it?.id && !tombSet.has(it.id)) byId.set(it.id, it);
       const localOnly = [];
       for (const it of local) {
-        if (it?.id && !byId.has(it.id)) { byId.set(it.id, it); localOnly.push(it); }
+        if (it?.id && !byId.has(it.id) && !tombSet.has(it.id)) { byId.set(it.id, it); localOnly.push(it); }
       }
       const merged = sortColl(coll, [...byId.values()]);
       const next = JSON.stringify(merged);
@@ -132,6 +154,6 @@ const Sync = (() => {
     });
   }
 
-  return { init, pull, pushItem, pushKey, isConnected: () => connected === true };
+  return { init, pull, pushItem, pushKey, delItem, isConnected: () => connected === true };
 
 })();

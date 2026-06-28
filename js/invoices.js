@@ -8,7 +8,8 @@ const InvoiceModule = (() => {
 
   let photoDataUrl = null;
   let currentWeekStart = Holidays.getWeekStart();
-  let editingId = null;   // id of the invoice being edited, or null when creating
+  let editingId = null;     // id of the invoice being edited, or null when creating
+  let lastScanIds = null;   // identifiers from the most recent OCR scan (for supplier learning)
 
   function init() {
     currentWeekStart = App.getWeek();   // shared across tabs
@@ -151,6 +152,7 @@ const InvoiceModule = (() => {
         ${editing ? 'Update invoice' : (sendToXero ? 'Save &amp; send to Xero' : 'Save invoice')}
       </button>
       ${editing ? `<button class="secondary-btn full-btn" id="cancel-edit-btn" style="margin-top:8px">Cancel edit</button>` : ''}
+      ${editing ? `<button class="full-btn" id="delete-invoice-btn" style="margin-top:8px;background:none;border:1px solid var(--red-500);color:var(--red-500);border-radius:var(--r-md);height:44px;font-weight:600;cursor:pointer">Delete invoice</button>` : ''}
     `;
 
     // Bind events programmatically — no inline onclick
@@ -159,7 +161,21 @@ const InvoiceModule = (() => {
     document.getElementById('inv-gst').addEventListener('input', calcGST);
     document.getElementById('save-invoice-btn').addEventListener('click', save);
     document.getElementById('cancel-edit-btn')?.addEventListener('click', cancelEdit);
+    document.getElementById('delete-invoice-btn')?.addEventListener('click', deleteCurrent);
     if (editing) calcGST();   // show ex-GST for the prefilled total
+  }
+
+  function deleteCurrent() {
+    if (!editingId) return;
+    const inv  = Store.getInvoices().find(i => i.id === editingId);
+    const name = inv?.supplier ? `the ${inv.supplier} invoice` : 'this invoice';
+    const xeroNote = inv?.xeroId ? '\n\nIt was sent to Xero — remember to delete that draft bill in Xero too.' : '';
+    if (!confirm(`Delete ${name}? This removes it from PCW on all devices.${xeroNote}`)) return;
+    Store.deleteInvoice(editingId);
+    App.toast('Invoice deleted');
+    editingId = null;
+    resetForm();
+    loadWeekInvoices();
   }
 
   // Load an existing invoice into the form for editing
@@ -239,9 +255,15 @@ const InvoiceModule = (() => {
     'You are reading a supplier invoice or receipt image. Extract these fields and reply with ' +
     'ONLY a JSON object, no prose, no code fences:\n' +
     '{"supplier": string, "invoiceNo": string, "invoiceDate": "YYYY-MM-DD", ' +
-    '"totalIncGst": number, "gst": number}\n' +
+    '"totalIncGst": number, "gst": number, ' +
+    '"abn": string, "phone": string, "bpayBiller": string, "bankAccount": string, ' +
+    '"email": string, "addressLine": string}\n' +
     'totalIncGst is the grand total payable including GST. gst is the GST/tax amount; ' +
-    'if not shown, set it to null. invoiceDate is the invoice/issue date. ' +
+    'if not shown, set it to null. invoiceDate is the invoice/issue date.\n' +
+    'The identifier fields help recognise the supplier even when their name is not printed: ' +
+    'abn = the 11-digit Australian Business Number; phone = a business phone number; ' +
+    'bpayBiller = the BPAY biller code; bankAccount = BSB and account number; ' +
+    'email = supplier email; addressLine = the supplier street address. ' +
     'Use null for any field you cannot read. Do not guess amounts.';
 
   async function scanPhoto() {
@@ -280,10 +302,12 @@ const InvoiceModule = (() => {
       const text = (data.content || []).map(c => c.text || '').join('');
       const parsed = parseScanJson(text);
       if (!parsed) throw new Error('AI did not return invoice data');
-      const filled = applyScan(parsed);
-      setScanStatus(filled
-        ? 'Read from invoice — please check the details below'
-        : 'Couldn’t read the details — please enter them manually', false);
+      const { filled, supplierMatched } = applyScan(parsed);
+      setScanStatus(supplierMatched
+        ? 'Supplier recognised from a previous invoice — please confirm the details'
+        : (filled
+            ? 'Read from invoice — please check the details below'
+            : 'Couldn’t read the details — please enter them manually'), false);
     } catch (err) {
       // Keep the technical detail in the console for debugging; show the user
       // a plain, friendly message.
@@ -299,7 +323,64 @@ const InvoiceModule = (() => {
     try { return JSON.parse(match[0]); } catch { return null; }
   }
 
-  // Populate the form from the parsed result. Returns true if anything was filled.
+  // ── Supplier recognition by identifiers (ABN, phone, BPAY, etc.) ──
+
+  const digits = s => String(s || '').replace(/\D/g, '');
+
+  // Normalise the identifier fields from a scan into stable keys for matching.
+  function extractIds(p) {
+    const abn   = digits(p.abn).length === 11 ? digits(p.abn) : '';
+    const phone = digits(p.phone).slice(-9);                 // ignore country/area prefixes
+    const bpay  = digits(p.bpayBiller);
+    const acct  = digits(p.bankAccount);
+    const email = String(p.email || '').trim().toLowerCase();
+    const addr  = String(p.addressLine || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+    return {
+      abn,
+      phone: phone.length >= 6 ? phone : '',
+      bpay:  bpay.length  >= 3 ? bpay  : '',
+      acct:  acct.length  >= 6 ? acct  : '',
+      email,
+      addr:  addr.length  >= 8 ? addr  : '',
+    };
+  }
+
+  function hasAnyId(ids) {
+    return !!(ids && (ids.abn || ids.phone || ids.bpay || ids.acct || ids.email || ids.addr));
+  }
+
+  // Find a learned supplier whose fingerprint shares a strong identifier.
+  // Priority: ABN > BPAY > bank account > phone > email > address.
+  function matchSupplier(ids) {
+    if (!hasAnyId(ids)) return null;
+    const fps = Store.getSupplierFingerprints();
+    const keys = ['abn', 'bpay', 'acct', 'phone', 'email', 'addr'];
+    for (const k of keys) {
+      if (!ids[k]) continue;
+      const fp = fps.find(f => f.ids && f.ids[k] && f.ids[k] === ids[k]);
+      if (fp) return fp.supplier;
+    }
+    return null;
+  }
+
+  // Record/strengthen the association between a supplier name and these ids.
+  function learnSupplier(supplier, ids) {
+    supplier = (supplier || '').trim();
+    if (!supplier || !hasAnyId(ids)) return;
+    const fps = Store.getSupplierFingerprints();
+    let fp = fps.find(f => f.supplier.toLowerCase() === supplier.toLowerCase());
+    if (!fp) { fp = { supplier, ids: {}, count: 0 }; fps.push(fp); }
+    fp.supplier = supplier;                 // keep latest casing
+    fp.ids = fp.ids || {};
+    for (const k of ['abn', 'bpay', 'acct', 'phone', 'email', 'addr']) {
+      if (ids[k]) fp.ids[k] = ids[k];       // accumulate identifiers seen for this supplier
+    }
+    fp.count = (fp.count || 0) + 1;
+    fp.updatedAt = new Date().toISOString();
+    Store.saveSupplierFingerprints(fps);
+  }
+
+  // Populate the form from the parsed result. Returns { filled, supplierMatched }.
   function applyScan(p) {
     let filled = false;
     const setVal = (id, val) => {
@@ -307,13 +388,26 @@ const InvoiceModule = (() => {
       const el = document.getElementById(id);
       if (el) { el.value = val; filled = true; }
     };
-    setVal('inv-supplier', p.supplier);
+
+    // Remember the identifiers from this scan so we can learn the supplier on save.
+    lastScanIds = extractIds(p);
+
+    let supplier = (p.supplier || '').trim();
+    let supplierMatched = false;
+    // If the supplier name wasn't printed, try to recognise it from identifiers
+    // learned on previous invoices (ABN, phone, BPAY, bank account, email…).
+    if (!supplier) {
+      const match = matchSupplier(lastScanIds);
+      if (match) { supplier = match; supplierMatched = true; }
+    }
+
+    if (supplier) setVal('inv-supplier', supplier);
     setVal('inv-no', p.invoiceNo);
     if (/^\d{4}-\d{2}-\d{2}$/.test(p.invoiceDate || '')) setVal('inv-date', p.invoiceDate);
     if (typeof p.totalIncGst === 'number') setVal('inv-total-gst', p.totalIncGst);
     if (typeof p.gst === 'number')         setVal('inv-gst', p.gst);
     calcGST();
-    return filled;
+    return { filled, supplierMatched };
   }
 
   // ── Save ──────────────────────────────────────
@@ -326,6 +420,10 @@ const InvoiceModule = (() => {
     if (!supplier)     { App.toast('Supplier name is required', 'warning'); return; }
     if (!invoiceNo)    { App.toast('Invoice number is required', 'warning'); return; }
     if (!totalGst)     { App.toast('Enter the invoice total', 'warning'); return; }
+
+    // Learn supplier ↔ identifiers from this scan so future invoices auto-fill —
+    // including ones that don't print the supplier name.
+    if (lastScanIds) learnSupplier(supplier, lastScanIds);
 
     const manualGst = parseFloat(document.getElementById('inv-gst')?.value);
     const gst   = isNaN(manualGst) ? Math.round((totalGst / 11) * 100) / 100 : manualGst;
@@ -400,6 +498,7 @@ const InvoiceModule = (() => {
 
   function resetForm() {
     photoDataUrl = null;
+    lastScanIds = null;
     renderForm();
   }
 
