@@ -89,16 +89,19 @@ const SquareAPI = (() => {
     // Any order with tenders has been paid — captures COMPLETED and paid OPEN orders
     const orders = (data.orders || []).filter(o => o.tenders?.length > 0);
     let total = 0, cash = 0, card = 0, gst = 0;
-    let grossSum = 0, tipSum = 0, refundDelta = 0;   // for diagnostics
+    let grossSum = 0, tipSum = 0, refundDelta = 0, scSum = 0, discSum = 0;   // diagnostics
     orders.forEach(o => {
       const net        = o.net_amounts || {};
       const grossTotal = (o.total_money?.amount || 0) / 100;                          // incl tax + tips, before refunds
       const netTotal   = (net.total_money?.amount ?? o.total_money?.amount ?? 0) / 100; // after refunds/returns
       const tip        = (net.tip_money?.amount  ?? o.total_tip_money?.amount ?? 0) / 100;
+      const sc         = (net.service_charge_money?.amount ?? o.total_service_charge_money?.amount ?? 0) / 100;
+      const disc       = (net.discount_money?.amount ?? o.total_discount_money?.amount ?? 0) / 100;
       // Weekly SALES = GST-inclusive, net of refunds, EXCLUDING tips (tips aren't
       // sales). total_money would over-count by tips + any refunds.
       total += netTotal - tip;
       grossSum += grossTotal; tipSum += tip; refundDelta += (grossTotal - netTotal);
+      scSum += sc; discSum += disc;
       // GST collected on this order. Use net_amounts.tax_money (tax after any
       // returns/refunds) so the figure matches Square's "Taxes" line, which is
       // net of refunds; fall back to total_tax_money when net isn't present.
@@ -111,7 +114,7 @@ const SquareAPI = (() => {
         else                   card += (t.amount_money?.amount || 0) / 100;
       });
     });
-    return { date: dateStr, total, cash, card, gst, transactions: orders.length, grossSum, tipSum, refundDelta };
+    return { date: dateStr, total, cash, card, gst, transactions: orders.length, grossSum, tipSum, refundDelta, scSum, discSum };
   }
 
   // Fetch cash refunds for the week from Square's /v2/refunds endpoint.
@@ -227,7 +230,7 @@ const SquareAPI = (() => {
       Promise.all(days.map(ds => fetchTakingsReal(ds).catch(() => ({ total: 0, cash: 0, card: 0, gst: 0, transactions: 0, grossSum: 0, tipSum: 0, refundDelta: 0 })))),
       fetchWeeklyRefunds(weekStart, weekEnd).catch(() => 0),
     ]);
-    const { total, cashGross, cardSales, gst, transactions, grossSum, tipSum, refundDelta } = orderResults.reduce(
+    const { total, cashGross, cardSales, gst, transactions, grossSum, tipSum, refundDelta, scSum, discSum } = orderResults.reduce(
       (acc, r) => ({
         total:        acc.total        + (r.total || 0),
         cashGross:    acc.cashGross    + (r.cash  || 0),
@@ -237,16 +240,21 @@ const SquareAPI = (() => {
         grossSum:     acc.grossSum     + (r.grossSum || 0),
         tipSum:       acc.tipSum       + (r.tipSum || 0),
         refundDelta:  acc.refundDelta  + (r.refundDelta || 0),
+        scSum:        acc.scSum        + (r.scSum || 0),
+        discSum:      acc.discSum      + (r.discSum || 0),
       }),
-      { total: 0, cashGross: 0, cardSales: 0, gst: 0, transactions: 0, grossSum: 0, tipSum: 0, refundDelta: 0 }
+      { total: 0, cashGross: 0, cardSales: 0, gst: 0, transactions: 0, grossSum: 0, tipSum: 0, refundDelta: 0, scSum: 0, discSum: 0 }
     );
     const cashSales = cashGross - cashRefunds;
-    // Diagnostic: weekly sales = gross(total_money) − tips − refunds. Compare to Square.
+    // Diagnostic: full composition of total_money so the ~$500 gap can be located.
     console.log('[Square weekly] SALES:', total.toFixed(2),
       '| gross(total_money):', grossSum.toFixed(2),
-      '| tips removed:', tipSum.toFixed(2),
-      '| order refunds removed:', refundDelta.toFixed(2),
-      '| gst:', gst.toFixed(2));
+      '| tips:', tipSum.toFixed(2),
+      '| order refunds:', refundDelta.toFixed(2),
+      '| service charges:', scSum.toFixed(2),
+      '| discounts:', discSum.toFixed(2),
+      '| gst:', gst.toFixed(2),
+      '| card:', cardSales.toFixed(2), '| cashGross:', cashGross.toFixed(2));
     return { cashGross, cashRefunds, cashSales, cardSales, total, gst, transactions, paidIn: 0, paidOut: 0 };
   }
 
