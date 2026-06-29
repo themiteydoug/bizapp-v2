@@ -364,21 +364,27 @@ const CashModule = (() => {
           <span class="drawer-label">Daily totals (sum)</span>
           <span class="drawer-val" id="wk-total-banked">$0.00</span>
         </div>
+        <div class="cost-divider"></div>
         <div class="drawer-row">
-          <span class="drawer-label">Recounted total</span>
+          <span class="drawer-label">Recounted cash</span>
           <span class="drawer-val" id="wk-recount-display" style="font-weight:600">—</span>
         </div>
         <div class="drawer-row" id="wk-petty-row" style="display:none">
-          <span class="drawer-label">+ Petty cash</span>
+          <span class="drawer-label">Plus petty cash</span>
           <span class="drawer-val" id="wk-petty-amount" style="color:var(--green-600)">$0.00</span>
         </div>
+        <div class="drawer-row">
+          <span class="drawer-label" style="font-weight:700">Total</span>
+          <span class="drawer-val" id="wk-cash-plus-petty" style="font-weight:700">$0.00</span>
+        </div>
+        <div class="cost-divider"></div>
         <div class="drawer-row">
           <span class="drawer-label">Square cash report</span>
           <span class="drawer-val" id="wk-sq-cash-mirror">$—</span>
         </div>
         <div class="cost-divider"></div>
         <div class="drawer-row">
-          <span class="drawer-label" style="font-weight:700;font-size:15px">Cash + petty vs Square</span>
+          <span class="drawer-label" style="font-weight:700;font-size:15px">Total vs Square</span>
           <span class="read-field drawer-val" id="wk-variance" data-state="neutral" style="font-size:15px;font-weight:700">—</span>
         </div>
       </div>
@@ -578,15 +584,21 @@ const CashModule = (() => {
 
       setEl('wk-sq-cash',        '$' + cashNet.toFixed(2));
       setEl('wk-sq-cash-mirror', '$' + cashNet.toFixed(2));
-      recalcWeeklyVariance(weekRecs, cashNet);
+      // Now that Square cash is loaded, compute the variance. If a recount has
+      // been entered, use it (+ petty); otherwise fall back to the daily totals.
+      const ri = document.getElementById('wk-recount-input');
+      if (ri && parseFloat(ri.value) > 0) onRecountInput();
+      else recalcWeeklyVariance(weekRecs, cashNet);
     } catch(e) {
       console.error('Weekly totals error:', e);
     }
   }
 
   function onRecountInput() {
-    const val = parseFloat(document.getElementById('wk-recount-input')?.value) || 0;
+    const val   = parseFloat(document.getElementById('wk-recount-input')?.value) || 0;
+    const total = val + (currentPettyTotal || 0);
     setEl('wk-recount-display', '$' + val.toFixed(2));
+    setEl('wk-cash-plus-petty', '$' + total.toFixed(2));
     const squareCash = parseFloat(document.getElementById('wk-sq-cash')?.textContent?.replace('$', '')) || 0;
     if (squareCash) recalcWeeklyVarianceFromInputs(val, squareCash);
   }
