@@ -33,21 +33,6 @@ function setCors(res, extra = {}) {
   for (const [k, v] of Object.entries(extra)) res.setHeader(k, v);
 }
 
-async function doRefresh(refreshToken) {
-  const r = await fetch('https://identity.xero.com/connect/token', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-    body: new URLSearchParams({
-      grant_type:    'refresh_token',
-      refresh_token: refreshToken,
-      client_id:     process.env.XERO_CLIENT_ID,
-      client_secret: process.env.XERO_CLIENT_SECRET,
-    }),
-  });
-  if (!r.ok) return null;
-  return r.json();
-}
-
 module.exports = async (req, res) => {
   setCors(res);
 
@@ -108,31 +93,15 @@ module.exports = async (req, res) => {
   });
 
   try {
-    let response = await fetch(url, {
+    // The proxy does NOT refresh tokens — the client is the single refresh
+    // authority (single-flight + retry). Two refreshers would fork Xero's
+    // single-use rotating refresh token and drop the connection. A 401 is
+    // passed straight back so the client can refresh once and retry.
+    const response = await fetch(url, {
       method:  req.method,
       headers: makeHeaders(accessToken),
       body:    requestBody,
     });
-
-    // If 401, try refresh token
-    if (response.status === 401) {
-      const rt = req.headers['x-refresh-token'];
-      if (rt) {
-        const newTokens = await doRefresh(rt);
-        if (newTokens) {
-          response = await fetch(url, {
-            method:  req.method,
-            headers: makeHeaders(newTokens.access_token),
-            body:    requestBody,
-          });
-          const data = await response.json();
-          res.setHeader('X-New-Access-Token',  newTokens.access_token);
-          res.setHeader('X-New-Refresh-Token', newTokens.refresh_token);
-          res.setHeader('X-New-Expires-In',    String(newTokens.expires_in));
-          return res.status(response.status).json(data);
-        }
-      }
-    }
 
     // Read as text first so a non-JSON upstream body doesn't throw and mask the error
     const rawText = await response.text();

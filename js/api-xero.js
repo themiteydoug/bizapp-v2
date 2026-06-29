@@ -74,16 +74,15 @@ const XeroAPI = (() => {
   }
 
   // Single-flight token refresh. Xero refresh tokens are single-use (each
-  // refresh rotates the token), so concurrent callers MUST share one refresh —
-  // otherwise the losers use a now-invalidated token and the session is killed.
+  // refresh rotates the token), so the CLIENT is the sole refresh authority and
+  // concurrent callers share ONE refresh — otherwise the losers use a now-
+  // invalidated token and the session is killed. (The proxy must NOT refresh.)
   let _refreshPromise = null;
 
-  async function ensureFreshToken() {
-    if (!isTokenExpired()) return;
+  function refreshTokens() {
     if (_refreshPromise) return _refreshPromise;   // share the in-flight refresh
 
     _refreshPromise = (async () => {
-      if (!isTokenExpired()) return;               // another caller just refreshed
       const rt = getRefreshToken();
       if (!rt) throw new Error('Xero session expired — please reconnect in Settings');
 
@@ -114,8 +113,11 @@ const XeroAPI = (() => {
       throw new Error('Xero refresh failed — please try again');
     })();
 
-    try { await _refreshPromise; }
-    finally { _refreshPromise = null; }
+    return _refreshPromise.finally(() => { _refreshPromise = null; });
+  }
+
+  async function ensureFreshToken() {
+    if (isTokenExpired()) await refreshTokens();
   }
 
   // ── Proxy fetch ───────────────────────────────
@@ -127,7 +129,7 @@ const XeroAPI = (() => {
    * @param {boolean} payroll  true for payroll.xro endpoints
    * @param {object} queryParams  additional URL params for Xero
    */
-  async function proxyFetch(endpoint, options = {}, payroll = false, queryParams = {}) {
+  async function proxyFetch(endpoint, options = {}, payroll = false, queryParams = {}, _retried = false) {
     await ensureFreshToken();
 
     const token = getAccessToken();
@@ -142,23 +144,18 @@ const XeroAPI = (() => {
     const res = await fetch(`${CONFIG.API.XERO}?${qs}`, {
       method: options.method || 'GET',
       headers: {
-        'Content-Type':    'application/json',
-        'X-Access-Token':  token,
-        'X-Refresh-Token': getRefreshToken() || '',
+        'Content-Type':   'application/json',
+        'X-Access-Token': token,
       },
       body: options.body || undefined,
     });
 
-    // Handle token auto-refresh from proxy response headers
-    const newAccessToken  = res.headers.get('X-New-Access-Token');
-    const newRefreshToken = res.headers.get('X-New-Refresh-Token');
-    const newExpiresIn    = res.headers.get('X-New-Expires-In');
-    if (newAccessToken) {
-      Store.saveXeroTokens({
-        access_token:  newAccessToken,
-        refresh_token: newRefreshToken || getRefreshToken(),
-        expires_in:    parseInt(newExpiresIn || '1800'),
-      });
+    // Access token rejected: do ONE client-side refresh (the single authority)
+    // and retry the call once. The proxy never refreshes, so the rotating
+    // refresh-token chain is never forked.
+    if (res.status === 401 && !_retried) {
+      await refreshTokens();
+      return proxyFetch(endpoint, options, payroll, queryParams, true);
     }
 
     if (!res.ok) {
