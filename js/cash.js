@@ -333,8 +333,10 @@ const CashModule = (() => {
               <img id="petty-photo-preview" style="display:none;width:100%;border-radius:var(--r-md);max-height:200px;object-fit:cover">
             </label>
           </div>
-          <button class="primary-btn full-btn" id="petty-save-btn" style="margin-top:10px" disabled>Save &amp; add another</button>
-          <button class="secondary-btn full-btn" id="petty-done-btn" style="margin-top:8px">Done</button>
+          <div style="display:flex;gap:8px;margin-top:10px">
+            <button class="secondary-btn" id="petty-save-btn" style="flex:1" disabled>Save</button>
+            <button class="primary-btn" id="petty-save-another-btn" style="flex:1" disabled>Save &amp; add another</button>
+          </div>
         </div>
       </div>
 
@@ -366,17 +368,17 @@ const CashModule = (() => {
           <span class="drawer-label">Recounted total</span>
           <span class="drawer-val" id="wk-recount-display" style="font-weight:600">—</span>
         </div>
+        <div class="drawer-row" id="wk-petty-row" style="display:none">
+          <span class="drawer-label">+ Petty cash</span>
+          <span class="drawer-val" id="wk-petty-amount" style="color:var(--green-600)">$0.00</span>
+        </div>
         <div class="drawer-row">
           <span class="drawer-label">Square cash report</span>
           <span class="drawer-val" id="wk-sq-cash-mirror">$—</span>
         </div>
-        <div class="drawer-row" id="wk-petty-row" style="display:none">
-          <span class="drawer-label">Less petty cash taken</span>
-          <span class="drawer-val" id="wk-petty-amount" style="color:#e53935">$0.00</span>
-        </div>
         <div class="cost-divider"></div>
         <div class="drawer-row">
-          <span class="drawer-label" style="font-weight:700;font-size:15px">Recount vs expected</span>
+          <span class="drawer-label" style="font-weight:700;font-size:15px">Cash + petty vs Square</span>
           <span class="read-field drawer-val" id="wk-variance" data-state="neutral" style="font-size:15px;font-weight:700">—</span>
         </div>
       </div>
@@ -398,10 +400,10 @@ const CashModule = (() => {
 
     // Petty cash
     document.getElementById('petty-add-btn')?.addEventListener('click', showPettyForm);
-    document.getElementById('petty-done-btn')?.addEventListener('click', hidePettyForm);
     document.getElementById('petty-amount')?.addEventListener('input', onPettyAmount);
     document.getElementById('petty-photo-input')?.addEventListener('change', handlePettyPhoto);
-    document.getElementById('petty-save-btn')?.addEventListener('click', savePetty);
+    document.getElementById('petty-save-btn')?.addEventListener('click', () => savePetty(false));
+    document.getElementById('petty-save-another-btn')?.addEventListener('click', () => savePetty(true));
   }
 
   // ── Petty cash ────────────────────────────────
@@ -459,11 +461,14 @@ const CashModule = (() => {
 
   function updatePettySaveEnabled() {
     const amt = parseFloat(document.getElementById('petty-amount')?.value) || 0;
-    const btn = document.getElementById('petty-save-btn');
-    if (btn) btn.disabled = !(amt > 0 && pettyPhotoDataUrl);
+    const ok  = amt > 0 && !!pettyPhotoDataUrl;
+    const b1 = document.getElementById('petty-save-btn');
+    const b2 = document.getElementById('petty-save-another-btn');
+    if (b1) b1.disabled = !ok;
+    if (b2) b2.disabled = !ok;
   }
 
-  function savePetty() {
+  function savePetty(addAnother) {
     const amount = parseFloat(document.getElementById('petty-amount')?.value) || 0;
     if (!amount)            { App.toast('Enter the amount taken', 'warning'); return; }
     if (!pettyPhotoDataUrl) { App.toast('A receipt photo is required', 'warning'); return; }
@@ -490,8 +495,9 @@ const CashModule = (() => {
     try { window.Sync && Sync.putPhoto(inv.id, pettyPhotoDataUrl); } catch {}
 
     App.toast(`Petty cash $${amount.toFixed(2)} saved`);
-    resetPettyForm();   // keep the form open for the next entry
     renderPettyCash(weeklyWeekStart, weekEnd);
+    if (addAnother) resetPettyForm();   // keep the form open for the next entry
+    else            hidePettyForm();    // save and close
   }
 
   function renderPettyCash(weekStart, weekEnd) {
@@ -519,8 +525,8 @@ const CashModule = (() => {
     setEl('petty-total', '$' + currentPettyTotal.toFixed(2));
     const pettyRow = document.getElementById('wk-petty-row');
     if (pettyRow) pettyRow.style.display = currentPettyTotal > 0 ? 'flex' : 'none';
-    setEl('wk-petty-amount', '−$' + currentPettyTotal.toFixed(2));
-    onRecountInput();   // refresh variance to account for petty cash taken
+    setEl('wk-petty-amount', '+$' + currentPettyTotal.toFixed(2));
+    onRecountInput();   // refresh variance to include petty cash on the cash side
   }
 
   // Downscale + re-encode an image dataURL to JPEG (keeps storage/uploads small).
@@ -586,10 +592,9 @@ const CashModule = (() => {
   }
 
   function recalcWeeklyVarianceFromInputs(recount, squareCash) {
-    // Petty cash was taken from the till, so the expected bankable cash is the
-    // Square cash report MINUS petty cash. Compare the recount against that.
-    const expected = squareCash - (currentPettyTotal || 0);
-    const variance = recount - expected;
+    // Money taken for petty cash is still part of the till's takings, so add it
+    // back: recounted cash + petty cash should equal Square's recorded cash.
+    const variance = (recount + (currentPettyTotal || 0)) - squareCash;
     const abs      = Math.abs(variance);
     const el       = document.getElementById('wk-variance');
     if (!el) return;
@@ -677,7 +682,7 @@ const CashModule = (() => {
     const recount     = parseFloat(document.getElementById('wk-recount-input')?.value)                          || 0;
     const squareCash  = parseFloat(document.getElementById('wk-sq-cash')?.textContent?.replace('$', ''))        || 0;
     const finalTotal  = recount || dailyTotal;
-    const variance    = finalTotal - (squareCash - (currentPettyTotal || 0));
+    const variance    = (finalTotal + (currentPettyTotal || 0)) - squareCash;
     Store.saveWeeklyRec({
       type:         'weekly',
       weekStart:    weeklyWeekStart,
