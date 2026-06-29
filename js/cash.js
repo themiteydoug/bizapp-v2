@@ -302,6 +302,42 @@ const CashModule = (() => {
         </div>
       </div>
 
+      <!-- Petty cash -->
+      <div class="section-label">Petty cash <span style="color:var(--text-3);font-weight:400">(money taken from the till)</span></div>
+      <div class="card">
+        <div id="petty-list"></div>
+        <div class="drawer-row">
+          <span class="drawer-label" style="font-weight:600">Total petty cash</span>
+          <span class="drawer-val" id="petty-total" style="font-weight:600">$0.00</span>
+        </div>
+        <button class="secondary-btn full-btn" id="petty-add-btn" style="margin-top:10px">+ Add petty cash</button>
+
+        <div id="petty-form" style="display:none;margin-top:12px;border-top:1px solid var(--border);padding-top:12px">
+          <div class="field-group">
+            <label class="field-label">Amount taken ($) <span style="color:var(--red-500)">*</span></label>
+            <input class="field-input" type="number" id="petty-amount" min="0" step="0.01" inputmode="decimal" placeholder="0.00">
+          </div>
+          <div class="field-group">
+            <label class="field-label">What for (optional)</label>
+            <input class="field-input" id="petty-desc" placeholder="e.g. milk, cleaning supplies">
+          </div>
+          <div id="petty-photo-wrap" style="display:none">
+            <div class="section-label">Receipt photo <span style="color:var(--red-500)">*</span></div>
+            <input type="file" id="petty-photo-input" accept="image/*" style="display:none">
+            <label class="photo-zone" id="petty-photo-zone" for="petty-photo-input" style="display:block;cursor:pointer">
+              <div id="petty-photo-placeholder" style="display:flex;flex-direction:column;align-items:center;padding:20px 0">
+                <svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" style="color:var(--green-400)"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"></path><circle cx="12" cy="13" r="4"></circle></svg>
+                <div style="font-size:13px;font-weight:500;color:var(--text-2);margin-top:8px">Tap to photograph receipt</div>
+                <div style="font-size:11px;color:var(--text-3);margin-top:3px">Required</div>
+              </div>
+              <img id="petty-photo-preview" style="display:none;width:100%;border-radius:var(--r-md);max-height:200px;object-fit:cover">
+            </label>
+          </div>
+          <button class="primary-btn full-btn" id="petty-save-btn" style="margin-top:10px" disabled>Save &amp; add another</button>
+          <button class="secondary-btn full-btn" id="petty-done-btn" style="margin-top:8px">Done</button>
+        </div>
+      </div>
+
       <!-- Weekly recount -->
       <div class="section-label">Weekly cash recount</div>
       <div class="card">
@@ -334,9 +370,13 @@ const CashModule = (() => {
           <span class="drawer-label">Square cash report</span>
           <span class="drawer-val" id="wk-sq-cash-mirror">$—</span>
         </div>
+        <div class="drawer-row" id="wk-petty-row" style="display:none">
+          <span class="drawer-label">Less petty cash taken</span>
+          <span class="drawer-val" id="wk-petty-amount" style="color:#e53935">$0.00</span>
+        </div>
         <div class="cost-divider"></div>
         <div class="drawer-row">
-          <span class="drawer-label" style="font-weight:700;font-size:15px">Recount vs Square</span>
+          <span class="drawer-label" style="font-weight:700;font-size:15px">Recount vs expected</span>
           <span class="read-field drawer-val" id="wk-variance" data-state="neutral" style="font-size:15px;font-weight:700">—</span>
         </div>
       </div>
@@ -355,6 +395,152 @@ const CashModule = (() => {
     section.querySelector('#wk-recount-input').addEventListener('change', () => persistWeekly(true));
     section.querySelector('#wk-notes')?.addEventListener('change', () => persistWeekly(true));
     document.getElementById('save-weekly-btn')?.addEventListener('click', saveWeekly);
+
+    // Petty cash
+    document.getElementById('petty-add-btn')?.addEventListener('click', showPettyForm);
+    document.getElementById('petty-done-btn')?.addEventListener('click', hidePettyForm);
+    document.getElementById('petty-amount')?.addEventListener('input', onPettyAmount);
+    document.getElementById('petty-photo-input')?.addEventListener('change', handlePettyPhoto);
+    document.getElementById('petty-save-btn')?.addEventListener('click', savePetty);
+  }
+
+  // ── Petty cash ────────────────────────────────
+  let pettyPhotoDataUrl = null;
+  let currentPettyTotal = 0;
+
+  function showPettyForm() {
+    const f = document.getElementById('petty-form');
+    if (f) f.style.display = 'block';
+    document.getElementById('petty-add-btn').style.display = 'none';
+  }
+
+  function hidePettyForm() {
+    const f = document.getElementById('petty-form');
+    if (f) f.style.display = 'none';
+    document.getElementById('petty-add-btn').style.display = 'block';
+    resetPettyForm();
+  }
+
+  function resetPettyForm() {
+    pettyPhotoDataUrl = null;
+    const amt = document.getElementById('petty-amount'); if (amt) amt.value = '';
+    const desc = document.getElementById('petty-desc'); if (desc) desc.value = '';
+    const wrap = document.getElementById('petty-photo-wrap'); if (wrap) wrap.style.display = 'none';
+    const prev = document.getElementById('petty-photo-preview');
+    const ph   = document.getElementById('petty-photo-placeholder');
+    if (prev) { prev.style.display = 'none'; prev.src = ''; }
+    if (ph)   ph.style.display = 'flex';
+    updatePettySaveEnabled();
+  }
+
+  function onPettyAmount() {
+    const amt = parseFloat(document.getElementById('petty-amount')?.value) || 0;
+    // Once an amount is entered, the receipt photo box appears (and is required).
+    const wrap = document.getElementById('petty-photo-wrap');
+    if (wrap) wrap.style.display = amt > 0 ? 'block' : 'none';
+    updatePettySaveEnabled();
+  }
+
+  function handlePettyPhoto(e) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    e.target.value = '';
+    const reader = new FileReader();
+    reader.onload = async ev => {
+      pettyPhotoDataUrl = await compressImage(ev.target.result);
+      const prev = document.getElementById('petty-photo-preview');
+      const ph   = document.getElementById('petty-photo-placeholder');
+      if (prev) { prev.src = pettyPhotoDataUrl; prev.style.display = 'block'; }
+      if (ph)   ph.style.display = 'none';
+      updatePettySaveEnabled();
+    };
+    reader.readAsDataURL(file);
+  }
+
+  function updatePettySaveEnabled() {
+    const amt = parseFloat(document.getElementById('petty-amount')?.value) || 0;
+    const btn = document.getElementById('petty-save-btn');
+    if (btn) btn.disabled = !(amt > 0 && pettyPhotoDataUrl);
+  }
+
+  function savePetty() {
+    const amount = parseFloat(document.getElementById('petty-amount')?.value) || 0;
+    if (!amount)            { App.toast('Enter the amount taken', 'warning'); return; }
+    if (!pettyPhotoDataUrl) { App.toast('A receipt photo is required', 'warning'); return; }
+    const desc    = document.getElementById('petty-desc')?.value?.trim() || 'Petty cash';
+    const weekEnd = Holidays.getWeekEnd(weeklyWeekStart);
+    const today   = new Date().toLocaleDateString('sv-SE', { timeZone: 'Australia/Brisbane' });
+    // Date it inside the selected week so it lands in that week's COGS.
+    const date    = (today >= weeklyWeekStart && today <= weekEnd) ? today : weeklyWeekStart;
+
+    // A petty-cash entry is effectively an invoice → flows into COGS + the store.
+    const inv = Store.saveInvoice({
+      supplier:    'Petty cash',
+      invoiceNo:   'PETTY-' + Date.now().toString().slice(-6),
+      invoiceDate: date,
+      date,
+      totalIncGst: amount,
+      gst:         0,
+      subtotal:    amount,        // counts fully toward COGS
+      hasPhoto:    true,
+      source:      'petty_cash',
+      notes:       desc,
+      status:      'local',
+    });
+    try { window.Sync && Sync.putPhoto(inv.id, pettyPhotoDataUrl); } catch {}
+
+    App.toast(`Petty cash $${amount.toFixed(2)} saved`);
+    resetPettyForm();   // keep the form open for the next entry
+    renderPettyCash(weeklyWeekStart, weekEnd);
+  }
+
+  function renderPettyCash(weekStart, weekEnd) {
+    const entries = Store.getInvoices()
+      .filter(i => i.source === 'petty_cash' && i.date >= weekStart && i.date <= weekEnd);
+    currentPettyTotal = entries.reduce((s, e) => s + (e.totalIncGst || e.subtotal || 0), 0);
+
+    const list = document.getElementById('petty-list');
+    if (list) {
+      list.innerHTML = entries.length
+        ? entries.map(e => `
+            <div class="drawer-row" style="align-items:center">
+              <span class="drawer-label">${escHtml(e.notes && e.notes !== 'Petty cash' ? e.notes : 'Petty cash')}${e.hasPhoto ? ' 📷' : ''}
+                <button class="petty-del" data-del="${e.id}" title="Remove" style="background:none;border:none;color:var(--red-500);font-size:13px;cursor:pointer;margin-left:6px">✕</button>
+              </span>
+              <span class="drawer-val">$${(e.totalIncGst || 0).toFixed(2)}</span>
+            </div>`).join('')
+        : '<div style="font-size:12px;color:var(--text-3);padding:4px 0">No petty cash this week</div>';
+      list.querySelectorAll('.petty-del').forEach(b => b.addEventListener('click', () => {
+        if (!confirm('Remove this petty cash entry?')) return;
+        Store.deleteInvoice(b.dataset.del);
+        renderPettyCash(weekStart, weekEnd);
+      }));
+    }
+    setEl('petty-total', '$' + currentPettyTotal.toFixed(2));
+    const pettyRow = document.getElementById('wk-petty-row');
+    if (pettyRow) pettyRow.style.display = currentPettyTotal > 0 ? 'flex' : 'none';
+    setEl('wk-petty-amount', '−$' + currentPettyTotal.toFixed(2));
+    onRecountInput();   // refresh variance to account for petty cash taken
+  }
+
+  // Downscale + re-encode an image dataURL to JPEG (keeps storage/uploads small).
+  function compressImage(dataUrl, maxDim = 1280, quality = 0.72) {
+    return new Promise(resolve => {
+      const img = new Image();
+      img.onload = () => {
+        try {
+          const scale = Math.min(1, maxDim / Math.max(img.width, img.height));
+          const w = Math.max(1, Math.round(img.width * scale));
+          const h = Math.max(1, Math.round(img.height * scale));
+          const c = document.createElement('canvas');
+          c.width = w; c.height = h;
+          c.getContext('2d').drawImage(img, 0, 0, w, h);
+          resolve(c.toDataURL('image/jpeg', quality));
+        } catch { resolve(dataUrl); }
+      };
+      img.onerror = () => resolve(dataUrl);
+      img.src = dataUrl;
+    });
   }
 
   async function loadWeeklyData() {
@@ -372,6 +558,7 @@ const CashModule = (() => {
     const allRecs  = Store.getCashRecs().filter(r => r.type === 'daily');
     const weekRecs = allRecs.filter(r => r.date >= weeklyWeekStart && r.date <= weekEnd);
     renderWeeklyBreakdown(weekRecs, weeklyWeekStart, weekEnd);
+    renderPettyCash(weeklyWeekStart, weekEnd);
 
     try {
       const totals = await SquareAPI.getWeeklyTotals(weeklyWeekStart, weekEnd);
@@ -399,7 +586,10 @@ const CashModule = (() => {
   }
 
   function recalcWeeklyVarianceFromInputs(recount, squareCash) {
-    const variance = recount - squareCash;
+    // Petty cash was taken from the till, so the expected bankable cash is the
+    // Square cash report MINUS petty cash. Compare the recount against that.
+    const expected = squareCash - (currentPettyTotal || 0);
+    const variance = recount - expected;
     const abs      = Math.abs(variance);
     const el       = document.getElementById('wk-variance');
     if (!el) return;
@@ -487,7 +677,7 @@ const CashModule = (() => {
     const recount     = parseFloat(document.getElementById('wk-recount-input')?.value)                          || 0;
     const squareCash  = parseFloat(document.getElementById('wk-sq-cash')?.textContent?.replace('$', ''))        || 0;
     const finalTotal  = recount || dailyTotal;
-    const variance    = finalTotal - squareCash;
+    const variance    = finalTotal - (squareCash - (currentPettyTotal || 0));
     Store.saveWeeklyRec({
       type:         'weekly',
       weekStart:    weeklyWeekStart,
@@ -496,6 +686,7 @@ const CashModule = (() => {
       dailyTotal,
       recount,
       squareCash,
+      pettyCash:    currentPettyTotal || 0,
       variance,
       notes:        document.getElementById('wk-notes')?.value || '',
     });
