@@ -57,67 +57,27 @@ const XeroAPI = (() => {
     return cands.length === 1 ? info.byName[cands[0]] : null;
   }
 
-  // ── Token helpers ─────────────────────────────
+  // ── Connection state ──────────────────────────
+  // Tokens live SERVER-SIDE (in KV). The client only tracks whether a
+  // connection exists, refreshed from the server via checkConnection().
+  let _connected  = false;
+  let _tenantName = '';
 
-  function getAccessToken() {
-    return Store.getXeroTokens()?.access_token || null;
-  }
-
-  function getRefreshToken() {
-    return Store.getXeroTokens()?.refresh_token || null;
-  }
-
-  function isTokenExpired() {
-    const tokens = Store.getXeroTokens();
-    if (!tokens) return true;
-    return Date.now() > (tokens.savedAt + tokens.expires_in * 1000) - 60_000; // 1 min buffer
-  }
-
-  // Single-flight token refresh. Xero refresh tokens are single-use (each
-  // refresh rotates the token), so the CLIENT is the sole refresh authority and
-  // concurrent callers share ONE refresh — otherwise the losers use a now-
-  // invalidated token and the session is killed. (The proxy must NOT refresh.)
-  let _refreshPromise = null;
-
-  function refreshTokens() {
-    if (_refreshPromise) return _refreshPromise;   // share the in-flight refresh
-
-    _refreshPromise = (async () => {
-      const rt = getRefreshToken();
-      if (!rt) throw new Error('Xero session expired — please reconnect in Settings');
-
-      let res;
-      try {
-        res = await fetch(CONFIG.API.XERO_AUTH, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ action: 'refresh', refresh_token: rt }),
-        });
-      } catch (e) {
-        // Network blip — keep the tokens so a later call can retry, don't log out.
-        throw new Error('Network error refreshing Xero — please try again');
-      }
-
-      if (res.ok) {
-        const data = await res.json();
-        if (data && data.access_token) { Store.saveXeroTokens(data); return; }
-        throw new Error('Xero refresh returned no token — please try again');
-      }
-
-      // Only a genuinely invalid/expired refresh token (Xero replies 400/401)
-      // should force a reconnect. Anything else is treated as transient.
-      if (res.status === 400 || res.status === 401) {
-        Store.clearXeroTokens();
-        throw new Error('Xero reconnection required — go to Settings → Connect Xero');
-      }
-      throw new Error('Xero refresh failed — please try again');
-    })();
-
-    return _refreshPromise.finally(() => { _refreshPromise = null; });
-  }
-
-  async function ensureFreshToken() {
-    if (isTokenExpired()) await refreshTokens();
+  // Ask the server whether Xero is connected (called on boot + after connect).
+  async function checkConnection() {
+    if (CONFIG.FEATURES.DEMO_MODE) { _connected = true; return true; }
+    try {
+      const res = await fetch(CONFIG.API.XERO_AUTH, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'status' }),
+      });
+      if (!res.ok) { _connected = false; return false; }
+      const data = await res.json();
+      _connected  = !!data.connected;
+      _tenantName = data.tenantName || '';
+      return _connected;
+    } catch { _connected = false; return false; }
   }
 
   // ── Proxy fetch ───────────────────────────────
@@ -129,12 +89,8 @@ const XeroAPI = (() => {
    * @param {boolean} payroll  true for payroll.xro endpoints
    * @param {object} queryParams  additional URL params for Xero
    */
-  async function proxyFetch(endpoint, options = {}, payroll = false, queryParams = {}, _retried = false) {
-    await ensureFreshToken();
-
-    const token = getAccessToken();
-    if (!token) throw new Error('Not connected to Xero — go to Settings → Connect Xero');
-
+  async function proxyFetch(endpoint, options = {}, payroll = false, queryParams = {}) {
+    // Tokens are handled entirely server-side now — no headers needed.
     const qs = new URLSearchParams({
       endpoint,
       ...(payroll ? { payroll: 'true' } : {}),
@@ -143,25 +99,16 @@ const XeroAPI = (() => {
 
     const res = await fetch(`${CONFIG.API.XERO}?${qs}`, {
       method: options.method || 'GET',
-      headers: {
-        'Content-Type':   'application/json',
-        'X-Access-Token': token,
-      },
+      headers: { 'Content-Type': 'application/json' },
       body: options.body || undefined,
     });
-
-    // Access token rejected: do ONE client-side refresh (the single authority)
-    // and retry the call once. The proxy never refreshes, so the rotating
-    // refresh-token chain is never forked.
-    if (res.status === 401 && !_retried) {
-      await refreshTokens();
-      return proxyFetch(endpoint, options, payroll, queryParams, true);
-    }
 
     if (!res.ok) {
       let msg = `Xero API error ${res.status}`;
       try {
         const e = await res.json();
+        // The server reports a missing/expired connection — reflect it in the UI.
+        if (e._notConnected) { _connected = false; throw new Error('Xero not connected — go to Settings → Connect Xero'); }
         // Surface whichever field carries the real cause — our proxy uses
         // lowercase error/detail; Xero's own errors use Detail/Message/Title.
         msg = e.error || e.detail || e.Detail || e.Message || e.Title || msg;
@@ -243,7 +190,8 @@ const XeroAPI = (() => {
       }
     } catch (_) {}
 
-    // Tokens were already written to localStorage by xero-callback.html
+    // Tokens are stored server-side by /api/xero-auth — just mark connected.
+    _connected = true;
     const org = params.get('org') ? decodeURIComponent(params.get('org')) : '';
     history.replaceState({}, '', '/');
 
@@ -262,9 +210,19 @@ const XeroAPI = (() => {
 
   function isConnected() {
     if (CONFIG.FEATURES.DEMO_MODE) return true;
-    const tokens = Store.getXeroTokens();
-    if (!tokens) return false;
-    return !isTokenExpired();
+    return _connected;
+  }
+
+  // Disconnect Xero (clears the server-side tokens).
+  async function disconnect() {
+    try {
+      await fetch(CONFIG.API.XERO_AUTH, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'disconnect' }),
+      });
+    } catch {}
+    _connected = false;
   }
 
   // ── Demo data ─────────────────────────────────
@@ -817,6 +775,8 @@ const XeroAPI = (() => {
     startOAuthFlow,
     checkOAuthReturn,
     isConnected,
+    checkConnection,
+    disconnect,
     getDraftBills,
     createDraftBill,
     attachToBill,

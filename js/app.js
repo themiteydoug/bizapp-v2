@@ -370,6 +370,10 @@ const App = (() => {
     bindSettings();
     initPWA();
 
+    // Resolve Xero connection (tokens live server-side) before the dashboard
+    // decides whether to fetch overheads etc.
+    await XeroAPI.checkConnection();
+
     await Dashboard.init();
 
     // Start live cross-device sync (no-op if KV isn't configured).

@@ -1,14 +1,14 @@
 /**
  * Vercel Function: xero-auth
- * Handles Xero OAuth 2.0 token exchange and refresh server-side.
- * The CLIENT_SECRET never reaches the browser.
+ * Xero OAuth — exchanges the auth code for tokens and stores them SERVER-SIDE
+ * (in KV). The browser never receives the tokens. Also reports connection
+ * status and handles disconnect.
  *
- * Environment variables required (set in Vercel dashboard):
- *   XERO_CLIENT_ID      — your Xero app client ID
- *   XERO_CLIENT_SECRET  — your Xero app client secret
- *   XERO_REDIRECT_URI   — https://bizapp-v2.vercel.app/xero-callback.html
- *   APP_ORIGIN          — https://bizapp-v2.vercel.app
+ * Env: XERO_CLIENT_ID, XERO_CLIENT_SECRET, XERO_REDIRECT_URI, APP_ORIGIN,
+ *      KV_REST_API_URL / _TOKEN
  */
+
+const xero = require('../lib/xero');
 
 const ALLOWED_ORIGIN = process.env.APP_ORIGIN || 'https://bizapp-v2.vercel.app';
 
@@ -20,75 +20,63 @@ function setCors(res) {
 
 module.exports = async (req, res) => {
   setCors(res);
-
   if (req.method === 'OPTIONS') return res.status(204).end();
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
 
   const body = typeof req.body === 'string' ? JSON.parse(req.body) : (req.body || {});
-  const { action, code, refresh_token } = body;
-
-  if (!['exchange', 'refresh'].includes(action)) {
-    return res.status(400).json({ error: 'Invalid action' });
-  }
+  const { action, code } = body;
 
   try {
-    const tokenParams = {
-      client_id:     process.env.XERO_CLIENT_ID,
-      client_secret: process.env.XERO_CLIENT_SECRET,
-    };
+    // ── Connection status ──
+    if (action === 'status') {
+      const t = await xero.getTokens();
+      return res.status(200).json({ connected: !!(t && t.refresh_token), tenantName: t?.tenantName || null });
+    }
 
+    // ── Disconnect ──
+    if (action === 'disconnect') {
+      await xero.clearTokens();
+      return res.status(200).json({ connected: false });
+    }
+
+    // ── Exchange auth code for tokens (store server-side) ──
     if (action === 'exchange') {
       if (!code) return res.status(400).json({ error: 'Missing code' });
-      tokenParams.grant_type   = 'authorization_code';
-      tokenParams.code         = code;
-      tokenParams.redirect_uri = process.env.XERO_REDIRECT_URI
+      const redirectUri = process.env.XERO_REDIRECT_URI
         || 'https://bizapp-v2.vercel.app/xero-callback.html';
-    } else {
-      if (!refresh_token) return res.status(400).json({ error: 'Missing refresh_token' });
-      tokenParams.grant_type    = 'refresh_token';
-      tokenParams.refresh_token = refresh_token;
-    }
 
-    // Exchange with Xero
-    const tokenRes = await fetch('https://identity.xero.com/connect/token', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-      body: new URLSearchParams(tokenParams),
-    });
-
-    if (!tokenRes.ok) {
-      const err = await tokenRes.json();
-      return res.status(tokenRes.status).json({ error: err.error, description: err.error_description });
-    }
-
-    const tokens = await tokenRes.json();
-
-    // Fetch tenant ID automatically after exchange
-    let tenantId = null;
-    let tenantName = null;
-    if (action === 'exchange') {
-      const connRes = await fetch('https://api.xero.com/connections', {
-        headers: { 'Authorization': `Bearer ${tokens.access_token}` },
-      });
-      if (connRes.ok) {
-        const connections = await connRes.json();
-        if (connections.length > 0) {
-          tenantId   = connections[0].tenantId;
-          tenantName = connections[0].tenantName;
-        }
+      const { ok, status, data } = await xero.exchangeCode(code, redirectUri);
+      if (!ok) {
+        return res.status(status).json({ error: data.error, description: data.error_description });
       }
+
+      // Resolve the organisation (tenant) for this connection.
+      let tenantId = null, tenantName = null;
+      try {
+        const connRes = await fetch('https://api.xero.com/connections', {
+          headers: { Authorization: `Bearer ${data.access_token}` },
+        });
+        if (connRes.ok) {
+          const connections = await connRes.json();
+          if (connections.length) { tenantId = connections[0].tenantId; tenantName = connections[0].tenantName; }
+        }
+      } catch (_) {}
+
+      await xero.saveTokens({
+        access_token:  data.access_token,
+        refresh_token: data.refresh_token,
+        expires_in:    data.expires_in || 1800,
+        savedAt:       Date.now(),
+        tenantId,
+        tenantName,
+      });
+
+      // Tokens are NOT returned to the browser — only the org name for the toast.
+      return res.status(200).json({ connected: true, tenantName });
     }
 
-    // Return tokens to browser — but NOT the client secret (it never leaves this function)
-    return res.status(200).json({
-      access_token:  tokens.access_token,
-      refresh_token: tokens.refresh_token,
-      expires_in:    tokens.expires_in,
-      tenantId,
-      tenantName,
-    });
-
+    return res.status(400).json({ error: 'Invalid action' });
   } catch (err) {
-    return res.status(500).json({ error: 'Token exchange failed', detail: err.message });
+    return res.status(500).json({ error: 'Xero auth failed', detail: err.message });
   }
 };

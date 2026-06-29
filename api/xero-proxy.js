@@ -1,13 +1,17 @@
 /**
  * Vercel Function: xero-proxy
- * Proxies Xero API calls server-side using the stored access token.
+ * Proxies Xero API calls using tokens stored SERVER-SIDE in KV. The browser
+ * never holds the token; this function fetches it, refreshes it when needed
+ * (the single refresh authority), and writes the rotated token back.
  *
  * Environment variables required:
- *   XERO_CLIENT_ID      — your Xero app client ID
- *   XERO_CLIENT_SECRET  — your Xero app client secret
- *   XERO_TENANT_ID      — your Xero organisation tenant ID
- *   APP_ORIGIN          — https://bizapp-v2.vercel.app
+ *   XERO_CLIENT_ID, XERO_CLIENT_SECRET  — your Xero app credentials
+ *   APP_ORIGIN                          — https://bizapp-v2.vercel.app
+ *   KV_REST_API_URL / _TOKEN            — the connected KV store
+ *   XERO_TENANT_ID (optional)           — fallback tenant if not stored at connect
  */
+
+const xero = require('../lib/xero');
 
 const ALLOWED_ORIGIN = process.env.APP_ORIGIN || 'https://bizapp-v2.vercel.app';
 const XERO_BASE      = 'https://api.xero.com/api.xro/2.0';
@@ -39,12 +43,14 @@ module.exports = async (req, res) => {
   if (req.method === 'OPTIONS') return res.status(204).end();
   if (!['GET', 'POST', 'PUT'].includes(req.method)) return res.status(405).json({ error: 'Method not allowed' });
 
-  if (!process.env.XERO_TENANT_ID) {
-    return res.status(500).json({ error: 'XERO_TENANT_ID not set in Vercel environment variables' });
-  }
+  // Pull a valid (auto-refreshed) token from the server-side store.
+  let tokens;
+  try { tokens = await xero.getValid(); }
+  catch (e) { return res.status(500).json({ error: 'Token store error', detail: e.message }); }
+  if (!tokens) return res.status(401).json({ error: 'Xero not connected', _notConnected: true });
 
-  const accessToken = req.headers['x-access-token'];
-  if (!accessToken) return res.status(401).json({ error: 'Missing X-Access-Token header' });
+  const tenantId = tokens.tenantId || process.env.XERO_TENANT_ID;
+  if (!tenantId) return res.status(500).json({ error: 'No Xero tenant — reconnect Xero in Settings' });
 
   const endpoint     = req.query.endpoint;
   const isPayroll    = req.query.payroll === 'true';
@@ -87,21 +93,30 @@ module.exports = async (req, res) => {
 
   const makeHeaders = (token) => ({
     'Authorization':  `Bearer ${token}`,
-    'Xero-Tenant-Id': process.env.XERO_TENANT_ID,
+    'Xero-Tenant-Id': tenantId,
     'Content-Type':   bodyContentType,
     'Accept':         'application/json',
   });
 
   try {
-    // The proxy does NOT refresh tokens — the client is the single refresh
-    // authority (single-flight + retry). Two refreshers would fork Xero's
-    // single-use rotating refresh token and drop the connection. A 401 is
-    // passed straight back so the client can refresh once and retry.
-    const response = await fetch(url, {
+    let response = await fetch(url, {
       method:  req.method,
-      headers: makeHeaders(accessToken),
+      headers: makeHeaders(tokens.access_token),
       body:    requestBody,
     });
+
+    // If Xero rejects the token, refresh once (single authority, server-side)
+    // and retry. The rotated token is written back to KV by xero.refresh().
+    if (response.status === 401) {
+      const refreshed = await xero.refresh(tokens);
+      if (!refreshed) return res.status(401).json({ error: 'Xero not connected', _notConnected: true });
+      tokens = refreshed;
+      response = await fetch(url, {
+        method:  req.method,
+        headers: makeHeaders(tokens.access_token),
+        body:    requestBody,
+      });
+    }
 
     // Read as text first so a non-JSON upstream body doesn't throw and mask the error
     const rawText = await response.text();

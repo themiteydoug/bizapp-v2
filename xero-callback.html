@@ -59,30 +59,14 @@
 
         const data = await res.json();
 
-        // Write tokens directly to localStorage under the same keys the app uses.
-        // This works because xero-callback.html is same-origin as the main app,
-        // so they share localStorage (especially important for iOS PWA).
-        localStorage.setItem('bizops_xero_tokens', JSON.stringify({
-          access_token:  data.access_token,
-          refresh_token: data.refresh_token,
-          expires_in:    data.expires_in,
-          savedAt:       Date.now(),
-        }));
-        if (data.tenantId) {
-          localStorage.setItem('bizops_xero_tenant', data.tenantId);
-        }
+        // Tokens are stored SERVER-SIDE by /api/xero-auth — nothing is written to
+        // the browser. Just show success and return to the app.
 
-        // Show success briefly, then redirect back to the main app
         document.getElementById('spinner').style.display = 'none';
         document.getElementById('icon').style.display = 'block';
         document.getElementById('title').textContent = 'Xero connected!';
-
-        let detail = `Connected to <strong>${data.tenantName || 'your organisation'}</strong>.`;
-        if (data.tenantId) {
-          detail += `<br><br>Tenant ID (copy into Vercel env var XERO_TENANT_ID if not already set):<br><code>${data.tenantId}</code>`;
-        }
-        detail += `<br><br>Returning to app…`;
-        document.getElementById('msg').innerHTML = detail;
+        document.getElementById('msg').innerHTML =
+          `Connected to <strong>${data.tenantName || 'your organisation'}</strong>.<br><br>Returning to app…`;
 
         // Redirect back — query param tells the app to show a success toast
         const returnUrl = '/?xero_connected=1'
