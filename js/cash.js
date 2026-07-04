@@ -101,6 +101,21 @@ const CashModule = (() => {
         <div class="denom-subtotal">Coins subtotal: <span id="coins-subtotal">$0.00</span></div>
       </div>
 
+      <!-- Counted by — required -->
+      <div class="section-label">Counted by <span style="color:var(--red-500)">*</span></div>
+      <div class="card">
+        <select class="field-input" id="cash-counted-by">
+          ${staffOptionsHtml()}
+        </select>
+      </div>
+
+      <!-- Notes field -->
+      <div class="section-label">Notes</div>
+      <div class="card">
+        <textarea class="field-textarea" id="cash-notes" rows="3"
+          placeholder="Any discrepancies or notes…"></textarea>
+      </div>
+
       <!-- Totals -->
       <div class="card">
         <div class="drawer-row">
@@ -116,21 +131,6 @@ const CashModule = (() => {
           <span class="drawer-label" style="font-weight:700;font-size:15px">Actual cash (to bank)</span>
           <span class="drawer-val" id="cash-to-bank" style="font-size:15px;font-weight:700;color:var(--green-600)">$0.00</span>
         </div>
-      </div>
-
-      <!-- Counted by — required -->
-      <div class="section-label">Counted by <span style="color:var(--red-500)">*</span></div>
-      <div class="card">
-        <select class="field-input" id="cash-counted-by">
-          ${staffOptionsHtml()}
-        </select>
-      </div>
-
-      <!-- Notes field -->
-      <div class="section-label">Notes</div>
-      <div class="card">
-        <textarea class="field-textarea" id="cash-notes" rows="3"
-          placeholder="Any discrepancies or notes…"></textarea>
       </div>
 
       <button class="primary-btn full-btn" id="save-cash-btn">Save daily cash count</button>
