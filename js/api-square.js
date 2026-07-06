@@ -9,11 +9,17 @@ const SquareAPI = (() => {
   // ── Proxy helper ──────────────────────────────
 
   async function proxyFetch(endpoint, method = 'GET', body = null, extraParams = {}) {
-    const qs = new URLSearchParams({ endpoint, ...extraParams });
+    // Financial data must always be live. A unique cache-buster (_cb) per call
+    // makes every request URL distinct, and cache:'no-store' bypasses the HTTP
+    // cache — otherwise a GET like /payments can be served stale, which made one
+    // week's sales total show up under a different week. (_cb is stripped by the
+    // proxy before the call reaches Square.)
+    const qs = new URLSearchParams({ endpoint, ...extraParams, _cb: Date.now().toString() });
     const res = await fetch(`${CONFIG.API.SQUARE}?${qs}`, {
       method,
       headers: { 'Content-Type': 'application/json' },
       body: body ? JSON.stringify(body) : undefined,
+      cache: 'no-store',
     });
     if (!res.ok) {
       const errText = await res.text().catch(() => '');

@@ -34,6 +34,8 @@ function setCors(res) {
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
   res.setHeader('Access-Control-Max-Age', '86400');
+  // Live financial data — never let a browser or CDN cache a Square response.
+  res.setHeader('Cache-Control', 'no-store, max-age=0');
 }
 
 module.exports = async (req, res) => {
@@ -67,6 +69,7 @@ module.exports = async (req, res) => {
   // Build upstream query string (strip our routing params)
   const queryParams = { ...req.query };
   delete queryParams.endpoint;
+  delete queryParams._cb;        // client cache-buster — never forward to Square
 
   // Inject location_id server-side where needed (only if env var is actually set)
   const locationId = process.env.SQUARE_LOCATION_ID;

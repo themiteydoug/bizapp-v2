@@ -1,5 +1,5 @@
 /**
- * BizOps Service Worker v44
+ * BizOps Service Worker v45
  * Caches ONLY static assets — never API responses or financial data (FIND-004)
  *
  * Strategy: NETWORK-FIRST for the app shell so code/UI updates apply on the next
@@ -7,7 +7,7 @@
  * (v5 was cache-first, which pinned stale JS until the cache name was bumped.)
  */
 
-const CACHE = 'bizops-v44';
+const CACHE = 'bizops-v45';
 
 // Only static shell files — NO API endpoints
 const STATIC_SHELL = [
@@ -65,9 +65,11 @@ self.addEventListener('fetch', e => {
   // cache.put() throwing on unsupported schemes.
   if (req.method !== 'GET' || url.origin !== self.location.origin) return;
 
-  // Never cache API calls or financial data — always hit the network live
+  // Never cache API calls or financial data — always hit the network live.
+  // Use cache:'no-store' so the browser HTTP cache can't serve a stale response
+  // either (a cached /payments GET was showing one week's sales under another).
   if (NEVER_CACHE.some(nc => req.url.includes(nc))) {
-    e.respondWith(fetch(req));
+    e.respondWith(fetch(req, { cache: 'no-store' }));
     return;
   }
 
