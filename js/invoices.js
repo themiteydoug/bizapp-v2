@@ -1,16 +1,22 @@
 /**
- * BizOps · Invoice Module v3
+ * BizOps · Invoice Module v4
+ * - Photo/PDF capture supports MULTIPLE pages per invoice (multi-page invoices).
+ * - Accepts image files and PDF uploads.
+ * - Duplicate detection: warns when the same supplier + invoice number (or an
+ *   identical invoice number/total) has already been entered.
  * Camera uses <label for="input"> instead of JS .click() — works reliably on iOS Safari PWA.
  * COGS on dashboard comes from today's scanned invoices (Store.getInvoices).
  */
 
 const InvoiceModule = (() => {
 
-  let photoDataUrl = null;
+  const MAX_PAGES = 8;
+
+  let pages = [];           // [{ kind:'image'|'pdf', dataUrl, name }] — one entry per page
   let currentWeekStart = Holidays.getWeekStart();
   let editingId = null;     // id of the invoice being edited, or null when creating
   let lastScanIds = null;   // identifiers from the most recent OCR scan (for supplier learning)
-  let photoChanged = false; // true once a new photo is picked this session (vs lazy-loaded)
+  let photoChanged = false; // true once pages are added/removed this session (vs lazy-loaded)
 
   function init() {
     currentWeekStart = App.getWeek();   // shared across tabs
@@ -87,8 +93,8 @@ const InvoiceModule = (() => {
     const todayBrisbane = new Date().toLocaleDateString('sv-SE', { timeZone: 'Australia/Brisbane' });
     const sendToXero = Store.getSettings().sendToXero !== false;   // default: on
 
-    // When editing, pre-fill from the existing invoice. The photo (if any) lives
-    // server-side now and is lazy-loaded into the preview after render.
+    // When editing, pre-fill from the existing invoice. The pages (if any) live
+    // server-side now and are lazy-loaded into the strip after render.
     const editing = editingId ? Store.getInvoices().find(i => i.id === editingId) : null;
     const v = {
       supplier:  editing?.supplier || '',
@@ -100,20 +106,23 @@ const InvoiceModule = (() => {
     };
 
     container.innerHTML = `
-      <!-- Photo capture -->
-      <div class="section-label">Invoice photo <span style="color:var(--text-3);font-weight:400">(optional)</span></div>
+      <!-- Photo / PDF capture -->
+      <div class="section-label">Invoice photo / PDF <span style="color:var(--text-3);font-weight:400">(optional · multiple pages OK)</span></div>
 
-      <!-- File input — no 'capture', so iOS offers Photo Library / Take Photo / Choose File -->
-      <input type="file" id="inv-photo-library" accept="image/*" style="display:none">
+      <!-- File input — accepts images and PDFs; 'multiple' allows several pages at once -->
+      <input type="file" id="inv-photo-library" accept="image/*,application/pdf" multiple style="display:none">
 
-      <!-- Single tap zone — opens the picker (camera or library) -->
-      <label class="photo-zone" id="photo-zone" for="inv-photo-library" style="display:block;cursor:pointer${photoDataUrl ? ';border:2px solid var(--green-400)' : ''}">
-        <div id="photo-placeholder" style="${photoDataUrl ? 'display:none' : 'display:flex'};flex-direction:column;align-items:center;padding:24px 0">
+      <!-- Single tap zone — opens the picker (camera, library or files) -->
+      <label class="photo-zone" id="photo-zone" for="inv-photo-library" style="display:block;cursor:pointer">
+        <div id="photo-placeholder" style="display:flex;flex-direction:column;align-items:center;padding:24px 0">
           <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" style="color:var(--green-400)"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"></path><circle cx="12" cy="13" r="4"></circle></svg>
-          <div style="font-size:13px;font-weight:500;color:var(--text-2);margin-top:8px">Tap to add invoice</div>
+          <div id="photo-zone-text" style="font-size:13px;font-weight:500;color:var(--text-2);margin-top:8px">Tap to add invoice</div>
         </div>
-        <img id="photo-preview" src="${photoDataUrl || ''}" style="${photoDataUrl ? 'display:block' : 'display:none'};width:100%;border-radius:var(--r-md);max-height:220px;object-fit:cover">
       </label>
+
+      <!-- Thumbnails of the pages added so far -->
+      <div id="pages-strip" style="display:none;gap:8px;flex-wrap:wrap;margin-top:8px"></div>
+
       <!-- OCR scan status -->
       <div id="scan-status" style="display:none;font-size:12px;margin:6px 0 0;padding:8px 10px;border-radius:var(--r-sm);background:var(--bg-2);color:var(--text-2)"></div>
 
@@ -174,7 +183,7 @@ const InvoiceModule = (() => {
     `;
 
     // Bind events programmatically — no inline onclick
-    document.getElementById('inv-photo-library').addEventListener('change', handlePhoto);
+    document.getElementById('inv-photo-library').addEventListener('change', handleFiles);
     document.getElementById('inv-total-gst').addEventListener('input', calcGST);
     document.getElementById('inv-gst').addEventListener('input', calcGST);
     document.getElementById('save-invoice-btn').addEventListener('click', save);
@@ -182,17 +191,15 @@ const InvoiceModule = (() => {
     document.getElementById('delete-invoice-btn')?.addEventListener('click', deleteCurrent);
     if (editing) calcGST();   // show ex-GST for the prefilled total
 
-    // Lazy-load this invoice's photo (stored server-side) into the preview.
-    if (editing?.hasPhoto && !photoDataUrl && window.Sync) {
-      Sync.getPhoto(editing.id).then(dataUrl => {
-        if (!dataUrl || editingId !== editing.id) return;
-        photoDataUrl = dataUrl;          // for display + Xero attach; not marked changed
-        const preview = document.getElementById('photo-preview');
-        const placeholder = document.getElementById('photo-placeholder');
-        if (preview)     { preview.src = dataUrl; preview.style.display = 'block'; }
-        if (placeholder) placeholder.style.display = 'none';
-        const zone = document.getElementById('photo-zone');
-        if (zone) zone.style.border = '2px solid var(--green-400)';
+    renderPagesStrip();
+
+    // Lazy-load this invoice's pages (stored server-side) into the strip.
+    if (editing?.hasPhoto && !pages.length && window.Sync) {
+      Sync.getPhoto(editing.id).then(stored => {
+        if (!stored || editingId !== editing.id) return;
+        pages = parseStored(stored);
+        photoChanged = false;         // for display + Xero attach; not marked changed
+        renderPagesStrip();
       });
     }
   }
@@ -213,7 +220,8 @@ const InvoiceModule = (() => {
   // Load an existing invoice into the form for editing
   function startEdit(id) {
     editingId = id;
-    photoDataUrl = null;   // renderForm repopulates from the invoice
+    pages = [];            // renderForm repopulates from the invoice
+    photoChanged = false;
     renderForm();
     document.getElementById('invoice-form')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
   }
@@ -231,33 +239,92 @@ const InvoiceModule = (() => {
     setEl('inv-ex-gst', total ? '$' + ex.toFixed(2) : '$—');
   }
 
-  // ── Photo handling ────────────────────────────
+  // ── Page handling (images + PDFs, multi-page) ─────────────
 
-  function handlePhoto(e) {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    e.target.value = ''; // reset so same file can be re-selected
-    const reader = new FileReader();
-    reader.onload = async ev => {
-      // Downscale + re-encode to JPEG: keeps localStorage small, the upload
-      // within serverless limits, and normalises HEIC/PNG to a format the
-      // vision API accepts.
-      photoDataUrl = await compressImage(ev.target.result);
-      photoChanged = true;   // a new photo was picked → push it on save
-      const preview = document.getElementById('photo-preview');
-      const placeholder = document.getElementById('photo-placeholder');
-      if (preview)     { preview.src = photoDataUrl; preview.style.display = 'block'; }
-      if (placeholder) placeholder.style.display = 'none';
-      const zone = document.getElementById('photo-zone');
-      if (zone) zone.style.border = '2px solid var(--green-400)';
-      if (Store.getSettings().autoOcr !== false) scanPhoto();   // OCR — auto-read details (default on)
-    };
-    reader.readAsDataURL(file);
+  // Serialise pages for the shared photo store. Legacy invoices stored a single
+  // bare dataURL string; parseStored() reads both that and the new JSON array.
+  function parseStored(str) {
+    const s = String(str || '').trim();
+    if (!s) return [];
+    if (s[0] === '[') {
+      try {
+        const arr = JSON.parse(s);
+        return Array.isArray(arr) ? arr.filter(p => p && p.dataUrl) : [];
+      } catch { return []; }
+    }
+    const kind = s.startsWith('data:application/pdf') ? 'pdf' : 'image';
+    return [{ kind, dataUrl: s, name: kind === 'pdf' ? 'invoice.pdf' : 'photo.jpg' }];
+  }
+
+  function readFile(file) {
+    return new Promise((resolve, reject) => {
+      const r = new FileReader();
+      r.onload  = e => resolve(e.target.result);
+      r.onerror = reject;
+      r.readAsDataURL(file);
+    });
+  }
+
+  async function handleFiles(e) {
+    const files = Array.from(e.target.files || []);
+    e.target.value = ''; // reset so the same file can be re-selected
+    if (!files.length) return;
+    setScanStatus(`Adding ${files.length} page${files.length > 1 ? 's' : ''}…`, true);
+    for (const f of files) {
+      if (pages.length >= MAX_PAGES) { App.toast(`Up to ${MAX_PAGES} pages per invoice`, 'warning'); break; }
+      try {
+        if (f.type === 'application/pdf') {
+          pages.push({ kind: 'pdf', dataUrl: await readFile(f), name: f.name || 'invoice.pdf' });
+        } else if (f.type.startsWith('image/')) {
+          // Downscale + re-encode to JPEG: keeps storage small, the upload within
+          // serverless limits, and normalises HEIC/PNG to a format the vision API accepts.
+          const raw = await readFile(f);
+          pages.push({ kind: 'image', dataUrl: await compressImage(raw), name: f.name || 'photo.jpg' });
+        }
+      } catch (err) { console.warn('[file]', err.message); }
+    }
+    photoChanged = true;
+    renderPagesStrip();
+    if (Store.getSettings().autoOcr !== false) scanPages();   // OCR — auto-read details (default on)
+    else setScanStatus('', false);
+  }
+
+  function renderPagesStrip() {
+    const el = document.getElementById('pages-strip');
+    if (!el) return;
+    const zoneText = document.getElementById('photo-zone-text');
+    const zone     = document.getElementById('photo-zone');
+    if (zoneText) zoneText.textContent = pages.length ? 'Tap to add another page' : 'Tap to add invoice';
+    if (zone)     zone.style.border = pages.length ? '2px solid var(--green-400)' : '';
+
+    if (!pages.length) { el.style.display = 'none'; el.innerHTML = ''; return; }
+    el.style.display = 'flex';
+    el.innerHTML = pages.map((pg, i) => `
+      <div style="position:relative;flex:0 0 auto">
+        ${pg.kind === 'pdf'
+          ? `<div data-open="${i}" style="width:64px;height:64px;border-radius:8px;background:var(--bg-2);border:1px solid var(--border,#0002);display:flex;flex-direction:column;align-items:center;justify-content:center;font-size:12px;font-weight:700;color:var(--red-500);cursor:pointer">PDF<span style="font-weight:400;color:var(--text-3);font-size:10px">page ${i + 1}</span></div>`
+          : `<img data-open="${i}" src="${pg.dataUrl}" style="width:64px;height:64px;object-fit:cover;border-radius:8px;cursor:pointer">`}
+        <button data-del="${i}" title="Remove page" style="position:absolute;top:-6px;right:-6px;width:20px;height:20px;border-radius:50%;border:none;background:var(--red-500);color:#fff;font-size:14px;line-height:1;cursor:pointer">×</button>
+      </div>`).join('');
+
+    el.querySelectorAll('[data-del]').forEach(b => b.addEventListener('click', ev => {
+      ev.preventDefault(); ev.stopPropagation();
+      const i = +b.getAttribute('data-del');
+      pages.splice(i, 1);
+      photoChanged = true;
+      renderPagesStrip();
+    }));
+    el.querySelectorAll('[data-open]').forEach(b => b.addEventListener('click', () => {
+      const pg = pages[+b.getAttribute('data-open')];
+      if (!pg) return;
+      const w = window.open('', '_blank');
+      if (w) w.document.write(`<title>${escHtml(pg.name || 'page')}</title><body style="margin:0"><iframe src="${pg.dataUrl}" style="width:100vw;height:100vh;border:0"></iframe>`);
+    }));
   }
 
   // Resize an image dataURL down to maxDim on its longest edge, re-encoded as
   // JPEG. Falls back to the original on any failure.
-  function compressImage(dataUrl, maxDim = 1280, quality = 0.72) {
+  function compressImage(dataUrl, maxDim = 1400, quality = 0.72) {
     return new Promise(resolve => {
       const img = new Image();
       img.onload = () => {
@@ -276,7 +343,7 @@ const InvoiceModule = (() => {
     });
   }
 
-  // ── OCR: read invoice details from the photo via Claude vision ─
+  // ── OCR: read invoice details from the pages via Claude vision ─
   function setScanStatus(msg, busy) {
     const el = document.getElementById('scan-status');
     if (!el) return;
@@ -285,15 +352,16 @@ const InvoiceModule = (() => {
   }
 
   const SCAN_PROMPT =
-    'You are reading a supplier invoice or receipt image. Extract these fields and reply with ' +
-    'ONLY a JSON object, no prose, no code fences:\n' +
+    'You are reading one or more pages of a single supplier invoice or receipt. ' +
+    'Combine what you see across all pages and reply with ONLY a JSON object, no prose, no code fences:\n' +
     '{"supplier": string, "invoiceNo": string, "invoiceDate": "YYYY-MM-DD", ' +
     '"totalIncGst": number, "gst": number, ' +
     '"abn": string, "phone": string, "bpayBiller": string, "bankAccount": string, ' +
     '"email": string, "addressLine": string}\n' +
-    'totalIncGst is the grand total payable including GST (prefer a line labelled ' +
-    'Total, Amount Due, Amount Payable, or Balance). gst is the GST/tax amount; ' +
-    'if not shown, set it to null. invoiceDate is the invoice/issue date.\n' +
+    'totalIncGst is the grand total payable including GST for the whole invoice ' +
+    '(prefer a line labelled Total, Amount Due, Amount Payable, or Balance — usually ' +
+    'on the last page). gst is the GST/tax amount; if not shown, set it to null. ' +
+    'invoiceDate is the invoice/issue date.\n' +
     'IMPORTANT about money: a leading "$" is a dollar SIGN, never a digit — read ' +
     '"$300.00" as 300.00 (not 1300 or 4300). Return amounts as plain numbers with ' +
     'no "$" or commas. GST on a GST-inclusive total is at most one-eleventh of it, ' +
@@ -304,28 +372,39 @@ const InvoiceModule = (() => {
     'email = supplier email; addressLine = the supplier street address. ' +
     'Use null for any field you cannot read. Do not guess amounts.';
 
-  async function scanPhoto() {
-    if (!photoDataUrl) return;
-    const m = /^data:([^;]+);base64,(.+)$/.exec(photoDataUrl);
-    if (!m) return;
+  // Build a Claude content block from a page (image → image block, PDF → document block).
+  function pageToBlock(pg) {
+    const m = /^data:([^;]+);base64,(.+)$/.exec(pg.dataUrl || '');
+    if (!m) return null;
     const [, mediaType, b64] = m;
-    if (!/^image\/(jpeg|png|gif|webp)$/.test(mediaType)) {
-      setScanStatus('Photo saved — auto-read not supported for this image type, enter details manually', false);
+    if (pg.kind === 'pdf' || mediaType === 'application/pdf') {
+      return { type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: b64 } };
+    }
+    if (/^image\/(jpeg|png|gif|webp)$/.test(mediaType)) {
+      return { type: 'image', source: { type: 'base64', media_type: mediaType, data: b64 } };
+    }
+    return null;
+  }
+
+  async function scanPages() {
+    const blocks = pages.map(pageToBlock).filter(Boolean);
+    if (!blocks.length) { setScanStatus('', false); return; }
+
+    // Keep the upload within the serverless body limit (~4.5 MB). base64 is ~4/3
+    // of the raw bytes; guard on the encoded length so a big PDF doesn't 413.
+    const encodedBytes = pages.reduce((n, p) => n + (p.dataUrl ? p.dataUrl.length : 0), 0);
+    if (encodedBytes > 4_200_000) {
+      setScanStatus('Pages saved — too large to auto-read, please enter the details manually', false);
       return;
     }
+
     setScanStatus('Reading invoice details…', true);
     try {
       const res = await fetch('/api/scan-invoice', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          messages: [{
-            role: 'user',
-            content: [
-              { type: 'image', source: { type: 'base64', media_type: mediaType, data: b64 } },
-              { type: 'text', text: SCAN_PROMPT },
-            ],
-          }],
+          messages: [{ role: 'user', content: [...blocks, { type: 'text', text: SCAN_PROMPT }] }],
         }),
       });
       const raw = await res.text();
@@ -341,11 +420,18 @@ const InvoiceModule = (() => {
       const parsed = parseScanJson(text);
       if (!parsed) throw new Error('AI did not return invoice data');
       const { filled, supplierMatched } = applyScan(parsed);
-      setScanStatus(supplierMatched
-        ? 'Supplier recognised from a previous invoice — please confirm the details'
-        : (filled
-            ? 'Read from invoice — please check the details below'
-            : 'Couldn’t read the details — please enter them manually'), false);
+
+      // Warn straight away if this looks like an invoice already entered.
+      const dupe = currentFormDuplicate();
+      if (dupe) {
+        setScanStatus(`⚠️ Possible duplicate — ${dupe.supplier || 'this supplier'} #${dupe.invoiceNo || '—'} is already entered. Check before saving.`, false);
+      } else {
+        setScanStatus(supplierMatched
+          ? 'Supplier recognised from a previous invoice — please confirm the details'
+          : (filled
+              ? 'Read from invoice — please check the details below'
+              : 'Couldn’t read the details — please enter them manually'), false);
+      }
     } catch (err) {
       // Keep the technical detail in the console for debugging; show the user
       // a plain, friendly message.
@@ -359,6 +445,44 @@ const InvoiceModule = (() => {
     const match = text.match(/\{[\s\S]*\}/);
     if (!match) return null;
     try { return JSON.parse(match[0]); } catch { return null; }
+  }
+
+  // ── Duplicate detection ───────────────────────
+
+  const normNo = s => String(s || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+
+  // Find an already-entered invoice that this one likely duplicates.
+  // Priority: same supplier + same invoice number → strong; same invoice number
+  // alone (when specific enough) → strong; same supplier + same total + same date
+  // → likely (covers invoices whose number wasn't read).
+  function findDuplicate({ supplier, invoiceNo, totalIncGst, invoiceDate, excludeId }) {
+    const sup = String(supplier || '').trim().toLowerCase();
+    const no  = normNo(invoiceNo);
+    if (!sup && !no) return null;
+    return Store.getInvoices().find(inv => {
+      if (inv.id === excludeId) return false;
+      const sameNo  = no  && normNo(inv.invoiceNo) === no;
+      const sameSup = sup && String(inv.supplier || '').trim().toLowerCase() === sup;
+      if (sameNo && sameSup) return true;
+      // Same invoice number on its own only when it's specific enough that two
+      // suppliers are unlikely to share it (short/sequential numbers still need
+      // the supplier to match, handled above).
+      if (sameNo && no.length >= 6) return true;
+      if (sameSup && totalIncGst && Math.abs((inv.totalIncGst || 0) - totalIncGst) < 0.005
+          && invoiceDate && (inv.invoiceDate || inv.date) === invoiceDate) return true;
+      return false;
+    }) || null;
+  }
+
+  // Duplicate check against whatever is currently typed into the form.
+  function currentFormDuplicate() {
+    return findDuplicate({
+      supplier:    document.getElementById('inv-supplier')?.value?.trim(),
+      invoiceNo:   document.getElementById('inv-no')?.value?.trim(),
+      totalIncGst: parseFloat(document.getElementById('inv-total-gst')?.value) || 0,
+      invoiceDate: document.getElementById('inv-date')?.value,
+      excludeId:   editingId,
+    });
   }
 
   // ── Supplier recognition by identifiers (ABN, phone, BPAY, etc.) ──
@@ -459,6 +583,21 @@ const InvoiceModule = (() => {
     if (!invoiceNo)    { App.toast('Invoice number is required', 'warning'); return; }
     if (!totalGst)     { App.toast('Enter the invoice total', 'warning'); return; }
 
+    // The invoice date drives which week the cost lands in. Fall back to today
+    // (Brisbane) only if the date field was somehow left blank.
+    const invoiceDate = document.getElementById('inv-date')?.value
+      || new Date().toLocaleDateString('sv-SE', { timeZone: 'Australia/Brisbane' });
+
+    // Warn on a likely duplicate before writing anything.
+    const dupe = findDuplicate({ supplier, invoiceNo, totalIncGst: totalGst, invoiceDate, excludeId: editingId });
+    if (dupe) {
+      const when = dupe.invoiceDate || dupe.date || '';
+      const amt  = '$' + (dupe.totalIncGst || 0).toFixed(2);
+      if (!confirm(`Possible duplicate.\n\nAn invoice from ${dupe.supplier || 'this supplier'} (#${dupe.invoiceNo || '—'}, ${amt}${when ? ', ' + when : ''}) is already entered.\n\nSave this one anyway?`)) {
+        return;
+      }
+    }
+
     // Learn supplier ↔ identifiers from this scan so future invoices auto-fill —
     // including ones that don't print the supplier name.
     if (lastScanIds) learnSupplier(supplier, lastScanIds);
@@ -472,15 +611,10 @@ const InvoiceModule = (() => {
 
     const existing = editingId ? Store.getInvoices().find(i => i.id === editingId) : null;
 
-    // The invoice date drives which week the cost lands in. Fall back to today
-    // (Brisbane) only if the date field was somehow left blank.
-    const invoiceDate = document.getElementById('inv-date')?.value
-      || new Date().toLocaleDateString('sv-SE', { timeZone: 'Australia/Brisbane' });
-
-    // Whether this invoice has a photo (stored server-side, not in localStorage).
+    // Whether this invoice has any pages (stored server-side, not in localStorage).
     const hasPhoto = editingId
-      ? (photoChanged ? !!photoDataUrl : !!existing?.hasPhoto)
-      : !!photoDataUrl;
+      ? (photoChanged ? pages.length > 0 : !!existing?.hasPhoto)
+      : pages.length > 0;
 
     const invoiceData = {
       supplier,
@@ -490,6 +624,7 @@ const InvoiceModule = (() => {
       gst,
       subtotal:    exGst,
       notes:       document.getElementById('inv-notes')?.value || '',
+      pageCount:   pages.length,
       // Cost the invoice into the week of its invoice date, not the entry date,
       // so it's always reported in the period it belongs to.
       date:        invoiceDate,
@@ -503,9 +638,19 @@ const InvoiceModule = (() => {
       if (editingId) { Store.updateInvoice(editingId, { ...invoiceData, ...extra }); return editingId; }
       return Store.saveInvoice({ ...invoiceData, ...extra }).id;
     };
-    // Push the photo to the shared store (only when a new one was picked).
-    const pushPhoto = (id) => {
-      if (photoChanged && photoDataUrl && id && window.Sync) Sync.putPhoto(id, photoDataUrl);
+    // Push the pages to the shared store (only when they changed this session).
+    const pushPages = (id) => {
+      if (!photoChanged || !id || !window.Sync) return;
+      if (pages.length) Sync.putPhoto(id, JSON.stringify(pages));
+      else              Sync.delPhoto(id);   // all pages removed while editing
+    };
+    // Attach every page to the Xero bill (best-effort — never blocks the save).
+    const attachPages = (xeroId) => {
+      if (!xeroId || !pages.length) return;
+      pages.forEach((pg, i) => {
+        const label = (invoiceNo || 'invoice') + (pages.length > 1 ? `-p${i + 1}` : '');
+        XeroAPI.attachToBill(xeroId, pg.dataUrl, label).catch(e => console.warn('[Xero attach]', e.message));
+      });
     };
 
     // When off, the bill already reaches Xero another way (e.g. email forwarding).
@@ -514,7 +659,7 @@ const InvoiceModule = (() => {
 
     try {
       if (!sendToXero) {
-        pushPhoto(persist({ status: 'local', error: null }));
+        pushPages(persist({ status: 'local', error: null }));
         App.toast(editingId
           ? `${supplier} updated · $${exGst.toFixed(2)} ex GST`
           : `${supplier} · $${exGst.toFixed(2)} ex GST saved`);
@@ -522,12 +667,8 @@ const InvoiceModule = (() => {
         const xeroBill = await XeroAPI.createDraftBill(invoiceData);
         const xeroId = xeroBill?.id || invoiceData.xeroId;
         const id = persist({ xeroId, status: 'synced', error: null });
-        pushPhoto(id);
-        // Append the photo to the Xero bill (best-effort — never blocks the save)
-        if (xeroId && photoDataUrl) {
-          XeroAPI.attachToBill(xeroId, photoDataUrl, invoiceNo)
-            .catch(e => console.warn('[Xero attach]', e.message));
-        }
+        pushPages(id);
+        attachPages(xeroId);
         App.toast(editingId
           ? `${supplier} updated · $${exGst.toFixed(2)} ex GST`
           : `${supplier} · $${exGst.toFixed(2)} ex GST sent to Xero`);
@@ -536,7 +677,7 @@ const InvoiceModule = (() => {
       resetForm();
       loadWeekInvoices();
     } catch (err) {
-      pushPhoto(persist({ status: 'pending', error: err.message }));
+      pushPages(persist({ status: 'pending', error: err.message }));
       App.toast(editingId ? 'Updated locally — Xero sync failed' : 'Saved locally — Xero sync failed', 'warning');
       editingId = null;
       resetForm();
@@ -547,7 +688,7 @@ const InvoiceModule = (() => {
   }
 
   function resetForm() {
-    photoDataUrl = null;
+    pages = [];
     photoChanged = false;
     lastScanIds = null;
     renderForm();
@@ -575,7 +716,7 @@ const InvoiceModule = (() => {
           }
         </div>
         <div class="invoice-info">
-          <div class="invoice-supplier">${escHtml(inv.supplier || '—')}</div>
+          <div class="invoice-supplier">${escHtml(inv.supplier || '—')}${inv.pageCount > 1 ? ` <span style="font-size:11px;color:var(--text-3);font-weight:400">· ${inv.pageCount} pages</span>` : ''}</div>
           <div class="invoice-meta">${inv.date || '—'} · ${inv.invoiceNo || '—'} · ex GST $${(inv.subtotal || 0).toFixed(2)}</div>
         </div>
         <div class="invoice-right">

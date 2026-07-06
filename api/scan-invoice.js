@@ -43,13 +43,22 @@ module.exports = async (req, res) => {
     const body = typeof req.body === 'string' ? JSON.parse(req.body) : (req.body || {});
     if (!body.messages) return res.status(400).json({ error: 'Missing messages' });
 
+    // Multi-page invoices may include PDF pages (content blocks of type
+    // 'document'). PDF support in the Messages API is gated behind a beta header;
+    // add it only when a document block is actually present.
+    const hasPdf = (body.messages || []).some(m =>
+      Array.isArray(m.content) && m.content.some(c => c && c.type === 'document'));
+
+    const headers = {
+      'Content-Type':      'application/json',
+      'x-api-key':         apiKey,
+      'anthropic-version': '2023-06-01',
+    };
+    if (hasPdf) headers['anthropic-beta'] = 'pdfs-2024-09-25';
+
     const anthropicRes = await fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
-      headers: {
-        'Content-Type':      'application/json',
-        'x-api-key':         apiKey,
-        'anthropic-version': '2023-06-01',
-      },
+      headers,
       body: JSON.stringify({
         model:      'claude-haiku-4-5-20251001',
         max_tokens: 1000,

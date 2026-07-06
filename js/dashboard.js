@@ -8,6 +8,7 @@ const Dashboard = (() => {
 
   let refreshTimer = null;
   let currentWeekStart = Holidays.getWeekStart();
+  let reqId = 0;   // guards against a slow earlier fetch overwriting a newer week
 
   async function init() {
     currentWeekStart = App.getWeek();   // shared across tabs
@@ -67,19 +68,34 @@ const Dashboard = (() => {
   }
 
   async function refresh() {
+    // Capture the week + a request id at kick-off. If the user navigates to
+    // another week (or triggers another refresh) before this one finishes, a
+    // later request supersedes it and this one must NOT paint stale numbers —
+    // that race is what made several weeks show identical figures.
+    const myId      = ++reqId;
+    const weekStart = currentWeekStart;
+    const weekEnd   = Holidays.getWeekEnd(weekStart);
+
     const syncBtn = document.getElementById('sync-btn');
     if (syncBtn) syncBtn.classList.add('spinning');
-
-    const weekEnd = Holidays.getWeekEnd(currentWeekStart);
 
     try {
       const isManager = Auth.isManager();
 
+      // Each source resolves independently — a failure in one (e.g. a Square
+      // labour hiccup) must not blank the others or leave the whole dashboard
+      // frozen on the previously rendered week.
       const [weekTotals, rawTimesheets, overhead] = await Promise.all([
-        SquareAPI.getWeeklyTotals(currentWeekStart, weekEnd),
-        SquareAPI.getWeekTimesheets(currentWeekStart),
+        SquareAPI.getWeeklyTotals(weekStart, weekEnd).catch(e => {
+          console.warn('Weekly totals error:', e.message);
+          return { total: 0, gst: 0, transactions: 0 };
+        }),
+        SquareAPI.getWeekTimesheets(weekStart).catch(e => {
+          console.warn('Timesheets error:', e.message);
+          return [];
+        }),
         (isManager && XeroAPI.isConnected())
-          ? XeroAPI.getOverheadAverage(currentWeekStart).catch(e => {
+          ? XeroAPI.getOverheadAverage(weekStart).catch(e => {
               console.warn('Xero overhead error:', e.message);
               return null;
             })
@@ -89,14 +105,20 @@ const Dashboard = (() => {
       // Recost timesheets from Xero award rates (casual penalties). Salaried
       // managers are excluded from the variable labour metric (Square's labour
       // figure is hourly staff only).
-      const timesheets = await XeroAPI.applyAwardRates(rawTimesheets, currentWeekStart);
+      let timesheets = rawTimesheets;
+      try { timesheets = await XeroAPI.applyAwardRates(rawTimesheets, weekStart); }
+      catch (e) { console.warn('Award rates error:', e.message); }
 
-      renderMetrics(weekTotals, timesheets, overhead, currentWeekStart, weekEnd);
+      // Drop the result if a newer refresh started or the week changed underfoot.
+      if (myId !== reqId || weekStart !== currentWeekStart) return;
+
+      renderMetrics(weekTotals, timesheets, overhead, weekStart, weekEnd);
     } catch (e) {
+      if (myId !== reqId) return;
       console.error('Dashboard refresh error:', e);
       App.toast('Sync error: ' + e.message, 'error');
     } finally {
-      if (syncBtn) syncBtn.classList.remove('spinning');
+      if (myId === reqId && syncBtn) syncBtn.classList.remove('spinning');
       updateSyncTime();
     }
   }
