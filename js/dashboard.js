@@ -8,7 +8,7 @@ const Dashboard = (() => {
 
   let refreshTimer = null;
   let currentWeekStart = Holidays.getWeekStart();
-  let reqId = 0;   // guards against a slow earlier fetch overwriting a newer week
+  let lastRenderedWeek = null;   // the week whose numbers are currently painted on the tiles
 
   async function init() {
     currentWeekStart = App.getWeek();   // shared across tabs
@@ -67,24 +67,38 @@ const Dashboard = (() => {
     refresh();
   }
 
+  // Reset the metric tiles to a loading placeholder. Called whenever the viewed
+  // week changes so a slow/failed refresh can never leave the PREVIOUS week's
+  // numbers on screen — that stale-DOM carry-over is what made adjacent weeks
+  // show identical figures.
+  function blankMetrics() {
+    const set = (id, val) => { const el = document.getElementById(id); if (el) el.textContent = val; };
+    ['dash-takings', 'dash-staff-cost', 'dash-cogs-amt', 'dash-oh-amt', 'dash-net'].forEach(id => set(id, '…'));
+    ['dash-gst', 'dash-staff-pct', 'dash-cogs-pct', 'dash-oh-sub', 'dash-net-pct'].forEach(id => set(id, ''));
+    ['dash-staff-tile', 'dash-cogs-tile', 'dash-net-tile'].forEach(id => {
+      const el = document.getElementById(id); if (el) el.classList.remove('tile-alert');
+    });
+  }
+
   async function refresh() {
-    // Capture the week + a request id at kick-off. If the user navigates to
-    // another week (or triggers another refresh) before this one finishes, a
-    // later request supersedes it and this one must NOT paint stale numbers —
-    // that race is what made several weeks show identical figures.
-    const myId      = ++reqId;
+    // Snapshot the week at kick-off. Many things trigger refresh() — week nav,
+    // the 5-min timer, the sync button, live-sync data changes — so several can
+    // overlap. We paint a result only while the user is still on that week.
     const weekStart = currentWeekStart;
     const weekEnd   = Holidays.getWeekEnd(weekStart);
 
     const syncBtn = document.getElementById('sync-btn');
     if (syncBtn) syncBtn.classList.add('spinning');
 
+    // Changing weeks: clear the tiles so the old week's numbers don't linger
+    // while the new week loads.
+    if (weekStart !== lastRenderedWeek) blankMetrics();
+
     try {
       const isManager = Auth.isManager();
 
       // Each source resolves independently — a failure in one (e.g. a Square
-      // labour hiccup) must not blank the others or leave the whole dashboard
-      // frozen on the previously rendered week.
+      // labour hiccup) must not blank the others.
       const [weekTotals, rawTimesheets, overhead] = await Promise.all([
         SquareAPI.getWeeklyTotals(weekStart, weekEnd).catch(e => {
           console.warn('Weekly totals error:', e.message);
@@ -109,16 +123,18 @@ const Dashboard = (() => {
       try { timesheets = await XeroAPI.applyAwardRates(rawTimesheets, weekStart); }
       catch (e) { console.warn('Award rates error:', e.message); }
 
-      // Drop the result if a newer refresh started or the week changed underfoot.
-      if (myId !== reqId || weekStart !== currentWeekStart) return;
+      // The user navigated to a different week while this was in flight — drop
+      // it rather than paint one week's numbers under another week's label.
+      if (weekStart !== currentWeekStart) return;
 
       renderMetrics(weekTotals, timesheets, overhead, weekStart, weekEnd);
+      lastRenderedWeek = weekStart;
     } catch (e) {
-      if (myId !== reqId) return;
+      if (weekStart !== currentWeekStart) return;
       console.error('Dashboard refresh error:', e);
       App.toast('Sync error: ' + e.message, 'error');
     } finally {
-      if (myId === reqId && syncBtn) syncBtn.classList.remove('spinning');
+      if (weekStart === currentWeekStart && syncBtn) syncBtn.classList.remove('spinning');
       updateSyncTime();
     }
   }

@@ -315,11 +315,73 @@ const InvoiceModule = (() => {
       renderPagesStrip();
     }));
     el.querySelectorAll('[data-open]').forEach(b => b.addEventListener('click', () => {
-      const pg = pages[+b.getAttribute('data-open')];
-      if (!pg) return;
-      const w = window.open('', '_blank');
-      if (w) w.document.write(`<title>${escHtml(pg.name || 'page')}</title><body style="margin:0"><iframe src="${pg.dataUrl}" style="width:100vw;height:100vh;border:0"></iframe>`);
+      openViewer(pages[+b.getAttribute('data-open')]);
     }));
+  }
+
+  // In-app full-screen viewer. window.open() opens a chromeless blank page in an
+  // installed PWA with no way back (the reported white-screen trap), so show an
+  // overlay we control with an explicit Close button instead.
+  function dataUrlToBlobUrl(dataUrl) {
+    try {
+      const m = /^data:([^;]+);base64,(.+)$/.exec(dataUrl || '');
+      if (!m) return null;
+      const bin = atob(m[2]);
+      const arr = new Uint8Array(bin.length);
+      for (let i = 0; i < bin.length; i++) arr[i] = bin.charCodeAt(i);
+      return URL.createObjectURL(new Blob([arr], { type: m[1] }));
+    } catch { return null; }
+  }
+
+  function openViewer(pg) {
+    if (!pg || !pg.dataUrl) return;
+    const isPdf = pg.kind === 'pdf' || /^data:application\/pdf/.test(pg.dataUrl);
+    let blobUrl = null;
+
+    const overlay = document.createElement('div');
+    overlay.style.cssText = 'position:fixed;inset:0;z-index:9999;background:rgba(0,0,0,0.92);display:flex;flex-direction:column';
+
+    const bar = document.createElement('div');
+    bar.style.cssText = 'display:flex;justify-content:space-between;align-items:center;gap:12px;padding:14px 16px;padding-top:calc(14px + env(safe-area-inset-top,0px));color:#fff;font-size:14px;font-weight:600;flex:0 0 auto';
+    const title = document.createElement('span');
+    title.textContent = pg.name || (isPdf ? 'PDF' : 'Photo');
+    title.style.cssText = 'overflow:hidden;text-overflow:ellipsis;white-space:nowrap';
+    const close = document.createElement('button');
+    close.textContent = 'Close ✕';
+    close.style.cssText = 'flex:0 0 auto;background:rgba(255,255,255,0.15);border:1px solid rgba(255,255,255,0.35);color:#fff;border-radius:8px;padding:8px 14px;font-size:14px;font-weight:600;cursor:pointer';
+    bar.appendChild(title);
+    bar.appendChild(close);
+
+    const body = document.createElement('div');
+    body.style.cssText = 'flex:1;min-height:0;display:flex;align-items:center;justify-content:center;overflow:auto';
+
+    const cleanup = () => { overlay.remove(); if (blobUrl) URL.revokeObjectURL(blobUrl); };
+    close.addEventListener('click', cleanup);
+    overlay.addEventListener('click', e => { if (e.target === overlay || e.target === body) cleanup(); });
+
+    if (isPdf) {
+      blobUrl = dataUrlToBlobUrl(pg.dataUrl);
+      const frame = document.createElement('iframe');
+      frame.src = blobUrl || pg.dataUrl;
+      frame.style.cssText = 'width:100%;height:100%;border:0;background:#fff';
+      body.appendChild(frame);
+      // Some installed iOS PWAs can't render PDFs inline — offer a direct open.
+      const link = document.createElement('a');
+      link.href = blobUrl || pg.dataUrl;
+      link.target = '_blank';
+      link.textContent = 'Open';
+      link.style.cssText = 'flex:0 0 auto;color:#fff;text-decoration:underline;font-size:13px';
+      bar.insertBefore(link, close);
+    } else {
+      const img = document.createElement('img');
+      img.src = pg.dataUrl;
+      img.style.cssText = 'max-width:100%;max-height:100%;object-fit:contain';
+      body.appendChild(img);
+    }
+
+    overlay.appendChild(bar);
+    overlay.appendChild(body);
+    document.body.appendChild(overlay);
   }
 
   // Resize an image dataURL down to maxDim on its longest edge, re-encoded as
