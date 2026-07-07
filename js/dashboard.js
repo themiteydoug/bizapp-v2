@@ -196,6 +196,16 @@ const Dashboard = (() => {
     set('dash-net',     netSales > 0 ? fmt(netProfit) : '$—');
     set('dash-net-pct', netSales > 0 ? pct(netProfit) : '— of net sales');
     alert('dash-net-tile', netSales > 0 && netProfit < 0);
+
+    // Temporary diagnostic line — shows the raw Square inputs behind the sales
+    // headline so we can confirm they differ per week. Remove once verified.
+    const dbgEl = document.getElementById('dash-debug');
+    if (dbgEl && weekTotals._dbg) {
+      const d = weekTotals._dbg;
+      dbgEl.textContent =
+        `DIAG ${d.ws}→${d.we} · src=${d.src} · cashGross $${d.cG} · cardGross $${d.kG}` +
+        ` · payments n=${d.n}/${d.seen} · refunds $${d.ref} · headline $${Math.round(gross)}`;
+    }
   }
 
   function updateSyncTime() {
