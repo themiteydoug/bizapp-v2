@@ -277,19 +277,7 @@ const SquareAPI = (() => {
     const cardSales = cardGross - cardRefunds;
     const total     = cashSales + cardSales;
     const gst = agg.gst, transactions = agg.transactions;
-    return {
-      cashGross, cashRefunds, cashSales, cardSales, total, gst, transactions, paidIn: 0, paidOut: 0,
-      // Temporary diagnostic — surfaces the raw per-week inputs on-screen so we
-      // can see whether the Payments API is returning different data per week.
-      _dbg: {
-        ws: weekStart, we: weekEnd,
-        src: payments ? 'PAY' : 'ORD',
-        cG: Math.round(cashGross), kG: Math.round(cardGross),
-        n:  payments ? payments.completed : null,
-        seen: payments ? payments.seen : null,
-        ref: Math.round(totalRefunds),
-      },
-    };
+    return { cashGross, cashRefunds, cashSales, cardSales, total, gst, transactions, paidIn: 0, paidOut: 0 };
   }
 
   async function getStaffList() {
