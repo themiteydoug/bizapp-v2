@@ -129,7 +129,18 @@ const Store = (() => {
   }
 
   // Small helper to mirror a write to the shared store when Sync is present.
-  function mirrorItem(coll, item) { try { window.Sync && Sync.pushItem(coll, item); } catch {} }
+  // Never let an inline photo blob into the shared snapshot: photos are stored
+  // separately (Sync.putPhoto) and fetched on demand. A base64 photo left on an
+  // invoice record would bloat every 15-second snapshot pull across all devices.
+  function mirrorItem(coll, item) {
+    try {
+      if (!window.Sync) return;
+      const clean = (coll === 'invoices' && item && item.photoDataUrl)
+        ? { ...item, photoDataUrl: undefined }
+        : item;
+      Sync.pushItem(coll, clean);
+    } catch {}
+  }
   function mirrorKey(key, value)  { try { window.Sync && Sync.pushKey(key, value); } catch {} }
 
   // Collision-resistant ids (shared across devices now).

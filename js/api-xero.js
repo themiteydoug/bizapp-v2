@@ -690,51 +690,46 @@ const XeroAPI = (() => {
   }
 
   /**
-   * Fetches the Xero P&L from 1 July of the previous calendar year up to the
-   * end of the previous week, and returns the weekly average of operating
-   * expenses excluding wages and superannuation.
+   * Fetches the Xero P&L for a ROLLING 12-week window ending at the close of the
+   * previous week, and returns the weekly average of operating expenses
+   * excluding wages and superannuation.
    *
-   * The 1 July anchor only moves when the calendar year rolls over, so every
-   * week in a given year uses the same start date — e.g. all of 2026 reaches
-   * back to 1 Jul 2025 — giving a long, stable ~12–18 month average.
+   * A rolling window (rather than financial-year-to-date) means it never resets
+   * at the 1 July / 1 January boundary, and it reflects recent cost changes —
+   * e.g. a better supplier deal — within about three months instead of being
+   * diluted across a whole year.
    *
-   * Example: week of Mon 22 Jun 2026 → 1 Jul 2025 – 21 Jun 2026.
+   * Example: week of Mon 6 Jul 2026 → 13 Apr 2026 – 5 Jul 2026 (12 weeks).
    *
    * @param {string} currentWeekStart  ISO date (YYYY-MM-DD) of Monday this week
    * @returns {{ weeklyAverage, total, weeks, fromDate, toDate }}
    */
-  async function getOverheadAverage(currentWeekStart) {
-    if (CONFIG.FEATURES.DEMO_MODE) { await delay(900); return demoOverhead(); }
+  const OVERHEAD_WEEKS = 12;
 
-    // End date = the day before the current week starts (end of previous week).
-    // UTC-anchored arithmetic (Brisbane = UTC+10, no DST) so dates never slip.
-    const toD = new Date(currentWeekStart + 'T12:00:00Z');
-    toD.setUTCDate(toD.getUTCDate() - 1);
+  // Split an inclusive [from,to] date range into sub-ranges that never cross a
+  // 30 June financial-year end. A 12-week window crosses at most one boundary,
+  // so this returns one or two ranges.
+  function splitAtFinancialYearEnd(fromISO, toISO) {
+    const ranges = [];
+    let start = new Date(fromISO + 'T12:00:00Z');
+    const end = new Date(toISO + 'T12:00:00Z');
+    while (start <= end) {
+      const m = start.getUTCMonth();                       // 0=Jan … 5=Jun … 6=Jul
+      const fyEndYear = m >= 6 ? start.getUTCFullYear() + 1 : start.getUTCFullYear();
+      let segEnd = new Date(Date.UTC(fyEndYear, 5, 30, 12));   // 30 June of this FY
+      if (segEnd > end) segEnd = end;
+      ranges.push([start.toISOString().slice(0, 10), segEnd.toISOString().slice(0, 10)]);
+      start = new Date(segEnd);
+      start.setUTCDate(start.getUTCDate() + 1);
+    }
+    return ranges;
+  }
 
-    // Start date = 1 July of the previous calendar year, anchored to the year
-    // of the current week so it only resets on 1 January.
-    const anchorYear  = parseInt(currentWeekStart.slice(0, 4), 10);
-    const fromD = new Date(Date.UTC(anchorYear - 1, 6, 1)); // month 6 = July
-
-    const from = fromD.toISOString().slice(0, 10);
-    const to   = toD.toISOString().slice(0, 10);
-
-    // Number of weeks across the (inclusive) range
-    const days  = Math.round((toD - fromD) / 86400000) + 1;
-    const weeks = days / 7;
-
-    const data = await proxyFetch('/Reports/ProfitAndLoss', {}, false, {
-      fromDate: from,
-      toDate:   to,
-    });
-
-    const report = data?.Reports?.[0];
-    if (!report) throw new Error('No P&L data returned from Xero');
-
-    // Walk every P&L section. Count operating-expense accounts (excluding
-    // wages/leave + COGS items), PLUS any force-included account (e.g. Oil) no
-    // matter which section it lives in. "Cost of Sales" otherwise stays out —
-    // it's tracked separately from the entered invoices.
+  // Sum operating-expense accounts from one P&L report. Counts expense-section
+  // accounts (excluding wages/leave + COGS items), PLUS any force-included
+  // account (e.g. Oil) wherever it sits. "Cost of Sales" otherwise stays out —
+  // it's tracked separately from the entered invoices.
+  function sumOverheadFromReport(report) {
     let total = 0;
     for (const section of report.Rows || []) {
       if (section.RowType !== 'Section') continue;
@@ -748,6 +743,40 @@ const XeroAPI = (() => {
         if (isExpenseSection && !isExcludedFromOverhead(name)) total += amount;
       }
     }
+    return total;
+  }
+
+  async function getOverheadAverage(currentWeekStart) {
+    if (CONFIG.FEATURES.DEMO_MODE) { await delay(900); return demoOverhead(); }
+
+    // End date = the day before the current week starts (last Sunday).
+    // UTC-anchored arithmetic (Brisbane = UTC+10, no DST) so dates never slip.
+    const toD = new Date(currentWeekStart + 'T12:00:00Z');
+    toD.setUTCDate(toD.getUTCDate() - 1);
+
+    // Start date = Monday, OVERHEAD_WEEKS weeks before the current week, giving
+    // an exact 12-week (84-day) inclusive window.
+    const fromD = new Date(currentWeekStart + 'T12:00:00Z');
+    fromD.setUTCDate(fromD.getUTCDate() - OVERHEAD_WEEKS * 7);
+
+    const from  = fromD.toISOString().slice(0, 10);
+    const to    = toD.toISOString().slice(0, 10);
+    const weeks = OVERHEAD_WEEKS;
+
+    // Xero's P&L behaves inconsistently when a single request spans the 30 June
+    // financial-year end (it can split into per-year columns or come back empty,
+    // which is why overheads vanished the first week of the new FY). Split the
+    // window at each 30 June boundary, request one P&L per sub-range, and sum —
+    // each sub-request then sits inside a single financial year.
+    const ranges = splitAtFinancialYearEnd(from, to);
+    const reports = await Promise.all(ranges.map(([f, t]) =>
+      proxyFetch('/Reports/ProfitAndLoss', {}, false, { fromDate: f, toDate: t })
+        .then(d => d?.Reports?.[0] || null)
+        .catch(() => null)
+    ));
+    if (!reports.some(Boolean)) throw new Error('No P&L data returned from Xero');
+
+    const total = reports.reduce((sum, r) => sum + (r ? sumOverheadFromReport(r) : 0), 0);
 
     return {
       weeklyAverage: parseFloat((total / weeks).toFixed(2)),
