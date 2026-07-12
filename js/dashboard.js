@@ -9,13 +9,33 @@ const Dashboard = (() => {
   let refreshTimer = null;
   let currentWeekStart = Holidays.getWeekStart();
   let lastRenderedWeek = null;   // the week whose numbers are currently painted on the tiles
+  let visBound = false;          // visibilitychange listener attached only once
+
+  // Auto-refresh cadence. Kept generous (and paused while the app is in the
+  // background) so an app left open in someone's pocket doesn't keep pulling
+  // Square data every few minutes — that idle polling was burning through the
+  // Vercel data allowance.
+  const REFRESH_MS = 15 * 60 * 1000;
 
   async function init() {
     currentWeekStart = App.getWeek();   // shared across tabs
     setHeaderDate();
     bindWeekNav();
     await refresh();
-    refreshTimer = setInterval(refresh, 5 * 60 * 1000);
+
+    // Tick only when the app is actually on-screen.
+    if (refreshTimer) clearInterval(refreshTimer);
+    refreshTimer = setInterval(() => {
+      if (document.visibilityState === 'visible') refresh();
+    }, REFRESH_MS);
+
+    // Catch up straight away when the user brings the app back to the foreground.
+    if (!visBound) {
+      visBound = true;
+      document.addEventListener('visibilitychange', () => {
+        if (document.visibilityState === 'visible' && App.getActivePage?.() === 'dashboard') refresh();
+      });
+    }
   }
 
   function setHeaderDate() {

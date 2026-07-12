@@ -396,7 +396,7 @@ const App = (() => {
     boot();
   }
 
-  return { nav, toast, openSettings, refreshSettings, applyRoleUI, getWeek, setWeek, onDataChanged, onSyncStatus };
+  return { nav, toast, openSettings, refreshSettings, applyRoleUI, getWeek, setWeek, onDataChanged, onSyncStatus, getActivePage: () => activePage };
 
 })();
 

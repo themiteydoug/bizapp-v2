@@ -16,7 +16,10 @@
 const Sync = (() => {
 
   const API     = '/api/data';
-  const POLL_MS = 15000;
+  // Poll cadence for the shared snapshot. Only runs while the app is on-screen
+  // (see init) — a backgrounded PWA polling around the clock was the biggest
+  // consumer of the Vercel data allowance.
+  const POLL_MS = 30000;
 
   // server snapshot key → localStorage key
   const LS = {
@@ -192,7 +195,11 @@ const Sync = (() => {
     if (CONFIG.FEATURES.DEMO_MODE) return;
     await pull();
     if (timer) clearInterval(timer);
-    timer = setInterval(pull, POLL_MS);
+    // Only poll while the app is actually visible — don't keep pulling from a
+    // device sitting backgrounded in someone's pocket.
+    timer = setInterval(() => {
+      if (document.visibilityState === 'visible') pull();
+    }, POLL_MS);
     // Pull immediately when the app regains focus for a snappier feel.
     document.addEventListener('visibilitychange', () => {
       if (document.visibilityState === 'visible') pull();
