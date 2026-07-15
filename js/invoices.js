@@ -116,7 +116,7 @@ const InvoiceModule = (() => {
       <label class="photo-zone" id="photo-zone" for="inv-photo-library" style="display:block;cursor:pointer">
         <div id="photo-placeholder" style="display:flex;flex-direction:column;align-items:center;padding:24px 0">
           <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" style="color:var(--green-400)"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"></path><circle cx="12" cy="13" r="4"></circle></svg>
-          <div id="photo-zone-text" style="font-size:13px;font-weight:500;color:var(--text-2);margin-top:8px">Tap to add invoice</div>
+          <div id="photo-zone-text" style="font-size:13px;font-weight:500;color:var(--text-2);margin-top:8px">Tap or drop invoice here</div>
         </div>
       </label>
 
@@ -184,6 +184,7 @@ const InvoiceModule = (() => {
 
     // Bind events programmatically — no inline onclick
     document.getElementById('inv-photo-library').addEventListener('change', handleFiles);
+    bindDragDrop();   // desktop drag-and-drop onto the photo zone
     document.getElementById('inv-total-gst').addEventListener('input', calcGST);
     document.getElementById('inv-gst').addEventListener('input', calcGST);
     document.getElementById('save-invoice-btn').addEventListener('click', save);
@@ -265,9 +266,16 @@ const InvoiceModule = (() => {
     });
   }
 
+  // From the file picker (input change).
   async function handleFiles(e) {
     const files = Array.from(e.target.files || []);
     e.target.value = ''; // reset so the same file can be re-selected
+    ingestFiles(files);
+  }
+
+  // Shared pipeline for picked, dropped or pasted files.
+  async function ingestFiles(files) {
+    files = (files || []).filter(f => f && (f.type === 'application/pdf' || f.type.startsWith('image/')));
     if (!files.length) return;
     setScanStatus(`Adding ${files.length} page${files.length > 1 ? 's' : ''}…`, true);
     for (const f of files) {
@@ -289,12 +297,31 @@ const InvoiceModule = (() => {
     else setScanStatus('', false);
   }
 
+  // Drag-and-drop onto the photo zone (desktop). Uses the same ingest pipeline.
+  function bindDragDrop() {
+    const zone = document.getElementById('photo-zone');
+    if (!zone) return;
+    const highlight = on => { zone.style.background = on ? 'var(--bg-2)' : ''; zone.style.outline = on ? '2px dashed var(--green-400)' : ''; };
+    ['dragenter', 'dragover'].forEach(ev => zone.addEventListener(ev, e => {
+      e.preventDefault(); e.stopPropagation();
+      if (e.dataTransfer) e.dataTransfer.dropEffect = 'copy';
+      highlight(true);
+    }));
+    ['dragleave', 'dragend'].forEach(ev => zone.addEventListener(ev, e => {
+      e.preventDefault(); e.stopPropagation(); highlight(false);
+    }));
+    zone.addEventListener('drop', e => {
+      e.preventDefault(); e.stopPropagation(); highlight(false);
+      ingestFiles(Array.from(e.dataTransfer?.files || []));
+    });
+  }
+
   function renderPagesStrip() {
     const el = document.getElementById('pages-strip');
     if (!el) return;
     const zoneText = document.getElementById('photo-zone-text');
     const zone     = document.getElementById('photo-zone');
-    if (zoneText) zoneText.textContent = pages.length ? 'Tap to add another page' : 'Tap to add invoice';
+    if (zoneText) zoneText.textContent = pages.length ? 'Tap or drop another page' : 'Tap or drop invoice here';
     if (zone)     zone.style.border = pages.length ? '2px solid var(--green-400)' : '';
 
     if (!pages.length) { el.style.display = 'none'; el.innerHTML = ''; return; }
