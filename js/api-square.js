@@ -330,6 +330,38 @@ const SquareAPI = (() => {
     return { startingCash, cashSales, cashRefunds, paidIn, paidOut, expected, expectedInDrawer: expected, paidInOutItems };
   }
 
+  // Per-day cash drawer figures for a week, from ONE ListCashDrawerShifts call.
+  // The shift summary already carries opened_cash (float) and expected_cash, so we
+  // don't need a detail call per day. Returns a map: date → { float, expected,
+  // toBank, closed, shifts }. toBank = expected − float = net cash to bank above
+  // the float (directly comparable to the app's counted "actual cash to bank").
+  async function getWeeklyDrawerByDay(weekStart, weekEnd) {
+    if (CONFIG.FEATURES.DEMO_MODE) { await delay(300); return {}; }
+    const data = await proxyFetch('/cash-drawers/shifts', 'GET', null, {
+      begin_time: weekStart + 'T00:00:00+10:00',
+      end_time:   weekEnd   + 'T23:59:59+10:00',
+      sort_order: 'ASC',
+      limit: 100,
+    });
+    const shifts = data.cash_drawer_shifts || [];
+    const byDay = {};
+    shifts.forEach(s => {
+      if (!s.opened_at) return;
+      const date     = new Date(s.opened_at).toLocaleDateString('sv-SE', { timeZone: 'Australia/Brisbane' });
+      const opened   = (s.opened_cash_money?.amount   || 0) / 100;
+      const expected = (s.expected_cash_money?.amount || 0) / 100;
+      const closed   = s.closed_cash_money ? (s.closed_cash_money.amount || 0) / 100 : null;
+      const toBank   = Math.max(0, expected - opened);
+      if (!byDay[date]) byDay[date] = { float: 0, expected: 0, toBank: 0, closed: null, shifts: 0 };
+      byDay[date].float    += opened;
+      byDay[date].expected += expected;
+      byDay[date].toBank   += toBank;
+      byDay[date].shifts   += 1;
+      if (closed != null) byDay[date].closed = (byDay[date].closed || 0) + closed;
+    });
+    return byDay;
+  }
+
   // ── Payouts ───────────────────────────────────
 
   async function getWeeklyPayouts(weekStart, weekEnd) {
@@ -380,6 +412,6 @@ const SquareAPI = (() => {
 
   function delay(ms) { return new Promise(r => setTimeout(r, ms)); }
 
-  return { getTakings, getWeekTimesheets, getWeeklyTotals, getWeeklyPayouts, getStaffList, getDrawerReport };
+  return { getTakings, getWeekTimesheets, getWeeklyTotals, getWeeklyPayouts, getStaffList, getDrawerReport, getWeeklyDrawerByDay };
 
 })();

@@ -262,6 +262,7 @@ const CashModule = (() => {
   // ── Weekly banking ─────────────────────────────
 
   let weeklyWeekStart = Holidays.getWeekStart();
+  let drawerMap = {};   // date → Square drawer figures for the selected week
 
   function renderWeeklyPage() {
     const section = document.getElementById('cash-weekly-section');
@@ -569,8 +570,16 @@ const CashModule = (() => {
 
     const allRecs  = Store.getCashRecs().filter(r => r.type === 'daily');
     const weekRecs = allRecs.filter(r => r.date >= weeklyWeekStart && r.date <= weekEnd);
+    drawerMap = {};   // avoid showing the previous week's drawer figures while the new week loads
     renderWeeklyBreakdown(weekRecs, weeklyWeekStart, weekEnd);
     renderPettyCash(weeklyWeekStart, weekEnd);
+
+    // Per-day Square cash drawer figures — for per-day variances and filling
+    // missed days. Degrades gracefully (no per-day Square column) if the drawer
+    // scope isn't available or the call fails.
+    SquareAPI.getWeeklyDrawerByDay(weeklyWeekStart, weekEnd)
+      .then(drawerByDay => { drawerMap = drawerByDay || {}; renderWeeklyBreakdown(weekRecs, weeklyWeekStart, weekEnd); })
+      .catch(e => { console.warn('Drawer-by-day error:', e.message); drawerMap = {}; });
 
     try {
       const totals = await SquareAPI.getWeeklyTotals(weeklyWeekStart, weekEnd);
@@ -636,37 +645,110 @@ const CashModule = (() => {
       days.push(d.toISOString().slice(0, 10));
     }
 
-    let totalBanked = 0;
+    const todayBris = new Date().toLocaleDateString('sv-SE', { timeZone: 'Australia/Brisbane' });
+
+    let totalBanked = 0, totalVariance = 0, hasAnyVariance = false;
     const rows = days.map(date => {
-      const rec   = recMap[date];
-      const label = new Date(date + 'T12:00:00').toLocaleDateString('en-AU', { weekday: 'short', day: 'numeric', month: 'short' });
+      const rec    = recMap[date];
+      const label  = new Date(date + 'T12:00:00').toLocaleDateString('en-AU', { weekday: 'short', day: 'numeric', month: 'short' });
+      const drawer = drawerMap[date];
+      const sqToBank = drawer ? drawer.toBank : null;
+      const sqLine = sqToBank != null
+        ? `<span style="font-size:11px;color:var(--text-3)">Square $${sqToBank.toFixed(2)}</span>`
+        : '';
+
       if (rec) {
-        const amt = rec.actualCash ?? rec.actual ?? 0;
+        const amt   = rec.actualCash ?? rec.actual ?? 0;
         totalBanked += amt;
         const first = (rec.countedBy || '').trim().split(/\s+/)[0] || '';
-        return `<div class="drawer-row">
-          <span class="drawer-label">${label}</span>
-          <span style="flex:1;text-align:center;font-size:12px;font-weight:500;color:var(--text-3)">${escHtml(first)}</span>
-          <span class="drawer-val" style="color:var(--green-600)">$${amt.toFixed(2)}</span>
+        const estTag = rec.source === 'square_estimate'
+          ? ` <span style="font-size:10px;color:var(--text-3);font-weight:500">(est.)</span>` : '';
+        // Per-day variance: counted to-bank vs Square's expected drawer.
+        let varLine = '';
+        if (sqToBank != null && rec.source !== 'square_estimate') {
+          const v = amt - sqToBank;
+          totalVariance += v; hasAnyVariance = true;
+          varLine = `<span style="font-size:11px;font-weight:600;color:${varColor(v)}">${varLabel(v)}</span>`;
+        }
+        return `<div style="padding:6px 0;border-bottom:1px solid var(--border)">
+          <div style="display:flex;justify-content:space-between;align-items:center">
+            <span class="drawer-label">${label}${estTag}</span>
+            <span class="drawer-val" style="color:var(--green-600)">$${amt.toFixed(2)}</span>
+          </div>
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-top:2px">
+            <span style="font-size:11px;color:var(--text-3)">${escHtml(first) || (rec.source === 'square_estimate' ? 'Square' : '')}</span>
+            <span style="display:flex;gap:10px;align-items:center">${sqLine}${varLine}</span>
+          </div>
         </div>`;
       }
-      return `<div class="drawer-row">
-        <span class="drawer-label">${label}</span>
-        <span class="drawer-val" style="color:var(--text-3)">—</span>
+
+      // No count for this day. Offer to fill from Square if a drawer figure exists
+      // and the day is not still in progress.
+      const canFill = sqToBank != null && date < todayBris;
+      return `<div style="padding:6px 0;border-bottom:1px solid var(--border)">
+        <div style="display:flex;justify-content:space-between;align-items:center">
+          <span class="drawer-label">${label}</span>
+          <span class="drawer-val" style="color:var(--text-3)">Not counted</span>
+        </div>
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-top:4px">
+          ${sqLine || '<span></span>'}
+          ${canFill ? `<button class="secondary-btn" data-fill-date="${date}" data-fill-amt="${sqToBank.toFixed(2)}" style="font-size:11px;padding:3px 10px;height:auto;width:auto">Use Square $${sqToBank.toFixed(2)}</button>` : ''}
+        </div>
       </div>`;
     }).join('');
 
     el.innerHTML = `
       ${rows}
-      <div class="cost-divider"></div>
-      <div class="drawer-row">
+      <div class="drawer-row" style="margin-top:8px">
         <span class="drawer-label" style="font-weight:600">Total banked</span>
         <span class="drawer-val" style="font-weight:600">$${totalBanked.toFixed(2)}</span>
       </div>
+      ${hasAnyVariance ? `<div class="drawer-row">
+        <span class="drawer-label" style="font-weight:600">Daily variance (sum)</span>
+        <span class="drawer-val" style="font-weight:600;color:${varColor(totalVariance)}">${varLabel(totalVariance)}</span>
+      </div>` : ''}
     `;
+
+    // Wire the "Use Square" buttons for missed days.
+    el.querySelectorAll('button[data-fill-date]').forEach(b => b.addEventListener('click', () =>
+      fillMissedFromSquare(b.dataset.fillDate, parseFloat(b.dataset.fillAmt))));
 
     setEl('wk-total-banked', '$' + totalBanked.toFixed(2));
     return totalBanked;
+  }
+
+  // Colour/label for a per-day cash variance (counted − Square expected).
+  function varColor(v) {
+    const a = Math.abs(v);
+    if (a < 0.05) return 'var(--green-600)';
+    if (a <= 5)   return 'var(--text-2)';
+    return 'var(--red-500)';
+  }
+  function varLabel(v) {
+    if (Math.abs(v) < 0.05) return '✓ $0.00';
+    return (v > 0 ? '+' : '−') + '$' + Math.abs(v).toFixed(2);
+  }
+
+  // Fill a missed day's banking from Square's cash drawer (treated as actual, per
+  // the manager's instruction). Stored as a daily rec flagged 'square_estimate'.
+  function fillMissedFromSquare(date, amount) {
+    if (!(amount >= 0)) return;
+    Store.saveCashRec({
+      type:        'daily',
+      date,
+      total:       amount + FLOAT,
+      float:       FLOAT,
+      actualCash:  amount,
+      notesTotal:  0,
+      coinsTotal:  0,
+      denomCounts: {},
+      countedBy:   'Square (from drawer)',
+      countedById: '',
+      source:      'square_estimate',
+      notes:       'Filled from Square cash drawer — day not counted',
+    });
+    App.toast(`Added $${amount.toFixed(2)} from Square for ${new Date(date + 'T12:00:00').toLocaleDateString('en-AU', { weekday: 'short', day: 'numeric', month: 'short' })}`);
+    loadWeeklyData();
   }
 
   function recalcWeeklyVariance(recs, squareCash) {
