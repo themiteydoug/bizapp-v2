@@ -4,6 +4,9 @@
   "rewrites": [
     { "source": "/.netlify/functions/:path*", "destination": "/api/:path*" }
   ],
+  "crons": [
+    { "path": "/api/sync-order-counts", "schedule": "0 16 * * *" }
+  ],
   "headers": [
     {
       "source": "/(.*)",
