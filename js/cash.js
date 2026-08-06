@@ -616,33 +616,42 @@ const CashModule = (() => {
   function getSquareBasis() { return drawerAvailable ? drawerWeekTotal : squareCashNet; }
 
   // Refresh the final-check "Square" line + variance from the current basis.
+  // Petty cash is only added back to the counted side on the payments-based
+  // fallback (which doesn't know about paid-outs). On the drawer basis, Square's
+  // Expected already nets petty out — staff record it as a register Paid Out —
+  // and so does the physical count, so adding it again would double-count.
+  function pettyAdjustment() { return drawerAvailable ? 0 : (currentPettyTotal || 0); }
+
   function applySquareBasis() {
     const basis = getSquareBasis();
+    const adj   = pettyAdjustment();
     setEl('wk-sq-mirror-label', drawerAvailable ? 'Square cash drawer (7-day sum)' : 'Square cash report');
     setEl('wk-sq-cash-mirror', basis > 0 ? '$' + basis.toFixed(2) : '$—');
+
+    // Petty row only shows when it's actually part of the reconciliation.
+    const pettyRow = document.getElementById('wk-petty-row');
+    if (pettyRow) pettyRow.style.display = adj > 0 ? 'flex' : 'none';
+    setEl('wk-petty-amount', '+$' + adj.toFixed(2));
+
+    const recount = parseFloat(document.getElementById('wk-recount-input')?.value) || 0;
+    setEl('wk-recount-display', '$' + recount.toFixed(2));
+    setEl('wk-cash-plus-petty', '$' + (recount + adj).toFixed(2));
+
     if (!(basis > 0)) {   // no Square data loaded yet — don't show a misleading variance
       const el = document.getElementById('wk-variance');
       if (el) { el.textContent = '—'; el.dataset.state = 'neutral'; }
       return;
     }
-    const ri = document.getElementById('wk-recount-input');
-    if (ri && parseFloat(ri.value) > 0) recalcWeeklyVarianceFromInputs(parseFloat(ri.value), basis);
+    if (recount > 0) recalcWeeklyVarianceFromInputs(recount, basis);
     else recalcWeeklyVariance(currentWeekRecs, basis);
   }
 
-  function onRecountInput() {
-    const val   = parseFloat(document.getElementById('wk-recount-input')?.value) || 0;
-    const total = val + (currentPettyTotal || 0);
-    setEl('wk-recount-display', '$' + val.toFixed(2));
-    setEl('wk-cash-plus-petty', '$' + total.toFixed(2));
-    const squareCash = getSquareBasis();
-    if (squareCash) recalcWeeklyVarianceFromInputs(val, squareCash);
-  }
+  // Recompute everything (petty display, totals, variance) from the current
+  // Square basis whenever the recount changes.
+  function onRecountInput() { applySquareBasis(); }
 
   function recalcWeeklyVarianceFromInputs(recount, squareCash) {
-    // Money taken for petty cash is still part of the till's takings, so add it
-    // back: recounted cash + petty cash should equal Square's recorded cash.
-    const variance = (recount + (currentPettyTotal || 0)) - squareCash;
+    const variance = (recount + pettyAdjustment()) - squareCash;
     const abs      = Math.abs(variance);
     const el       = document.getElementById('wk-variance');
     if (!el) return;
