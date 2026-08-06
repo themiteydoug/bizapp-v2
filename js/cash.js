@@ -265,6 +265,7 @@ const CashModule = (() => {
   let drawerMap = {};          // date → Square drawer figures for the selected week
   let drawerWeekTotal = 0;     // Σ per-day drawer to-bank (summed day-by-day, not Square's weekly aggregate)
   let drawerAvailable = false; // true once at least one drawer shift is found for the week
+  let pettyBankingTotal = 0;   // petty taken from the banking (not the till) — added back on the drawer basis
   let squareCashNet = 0;       // payments-based weekly cash (fallback basis when no drawer data)
   let currentWeekRecs = [];    // daily recs for the selected week (for variance recompute)
 
@@ -326,6 +327,16 @@ const CashModule = (() => {
             <label class="field-label">What for (optional)</label>
             <input class="field-input" id="petty-desc" placeholder="e.g. milk, cleaning supplies">
           </div>
+          <div class="field-group">
+            <label class="field-label">Where did the cash come from?</label>
+            <select class="field-input" id="petty-source">
+              <option value="till">From the till (Paid Out on register)</option>
+              <option value="banking">From the banking (set aside before banking)</option>
+            </select>
+            <div style="font-size:11px;color:var(--text-3);margin-top:4px">
+              Till = Square already knows (a register Paid Out). Banking = taken from the cash to bank, so it's added back when reconciling.
+            </div>
+          </div>
           <div id="petty-photo-wrap" style="display:none">
             <div class="section-label">Receipt photo <span style="color:var(--red-500)">*</span></div>
             <input type="file" id="petty-photo-input" accept="image/*" style="display:none">
@@ -375,7 +386,7 @@ const CashModule = (() => {
           <span class="drawer-val" id="wk-recount-display" style="font-weight:600">—</span>
         </div>
         <div class="drawer-row" id="wk-petty-row" style="display:none">
-          <span class="drawer-label">Plus petty cash</span>
+          <span class="drawer-label" id="wk-petty-label">Plus petty cash</span>
           <span class="drawer-val" id="wk-petty-amount" style="color:var(--green-600)">$0.00</span>
         </div>
         <div class="drawer-row">
@@ -438,6 +449,7 @@ const CashModule = (() => {
     pettyPhotoDataUrl = null;
     const amt = document.getElementById('petty-amount'); if (amt) amt.value = '';
     const desc = document.getElementById('petty-desc'); if (desc) desc.value = '';
+    const src  = document.getElementById('petty-source'); if (src) src.value = 'till';
     const wrap = document.getElementById('petty-photo-wrap'); if (wrap) wrap.style.display = 'none';
     const prev = document.getElementById('petty-photo-preview');
     const ph   = document.getElementById('petty-photo-placeholder');
@@ -500,6 +512,7 @@ const CashModule = (() => {
       subtotal:    amount,        // counts fully toward COGS
       hasPhoto:    true,
       source:      'petty_cash',
+      pettySource: document.getElementById('petty-source')?.value || 'till',
       notes:       desc,
       status:      'local',
     });
@@ -514,14 +527,18 @@ const CashModule = (() => {
   function renderPettyCash(weekStart, weekEnd) {
     const entries = Store.getInvoices()
       .filter(i => i.source === 'petty_cash' && i.date >= weekStart && i.date <= weekEnd);
+    // Legacy entries (no pettySource) are treated as 'till' — matching how petty
+    // was recorded before the two-type split (register Paid Outs).
+    const isBanking = e => (e.pettySource || 'till') === 'banking';
     currentPettyTotal = entries.reduce((s, e) => s + (e.totalIncGst || e.subtotal || 0), 0);
+    pettyBankingTotal = entries.filter(isBanking).reduce((s, e) => s + (e.totalIncGst || e.subtotal || 0), 0);
 
     const list = document.getElementById('petty-list');
     if (list) {
       list.innerHTML = entries.length
         ? entries.map(e => `
             <div class="drawer-row" style="align-items:center">
-              <span class="drawer-label">${escHtml(e.notes && e.notes !== 'Petty cash' ? e.notes : 'Petty cash')}${e.hasPhoto ? ' 📷' : ''}
+              <span class="drawer-label">${escHtml(e.notes && e.notes !== 'Petty cash' ? e.notes : 'Petty cash')}${e.hasPhoto ? ' 📷' : ''}${isBanking(e) ? ' <span style="font-size:10px;color:var(--text-3)">(banking)</span>' : ''}
                 <button class="petty-del" data-del="${e.id}" title="Remove" style="background:none;border:none;color:var(--red-500);font-size:13px;cursor:pointer;margin-left:6px">✕</button>
               </span>
               <span class="drawer-val">$${(e.totalIncGst || 0).toFixed(2)}</span>
@@ -534,10 +551,7 @@ const CashModule = (() => {
       }));
     }
     setEl('petty-total', '$' + currentPettyTotal.toFixed(2));
-    const pettyRow = document.getElementById('wk-petty-row');
-    if (pettyRow) pettyRow.style.display = currentPettyTotal > 0 ? 'flex' : 'none';
-    setEl('wk-petty-amount', '+$' + currentPettyTotal.toFixed(2));
-    onRecountInput();   // refresh variance to include petty cash on the cash side
+    onRecountInput();   // applySquareBasis re-derives the petty add-back for the current basis
   }
 
   // Downscale + re-encode an image dataURL to JPEG (keeps storage/uploads small).
@@ -616,11 +630,11 @@ const CashModule = (() => {
   function getSquareBasis() { return drawerAvailable ? drawerWeekTotal : squareCashNet; }
 
   // Refresh the final-check "Square" line + variance from the current basis.
-  // Petty cash is only added back to the counted side on the payments-based
-  // fallback (which doesn't know about paid-outs). On the drawer basis, Square's
-  // Expected already nets petty out — staff record it as a register Paid Out —
-  // and so does the physical count, so adding it again would double-count.
-  function pettyAdjustment() { return drawerAvailable ? 0 : (currentPettyTotal || 0); }
+  // How much petty cash to add back to the counted side.
+  //  · Drawer basis: only petty taken FROM THE BANKING (Square's Expected already
+  //    nets out the till Paid Outs, so those must not be added again).
+  //  · Payments fallback: all petty (that basis knows about no paid-outs at all).
+  function pettyAdjustment() { return drawerAvailable ? (pettyBankingTotal || 0) : (currentPettyTotal || 0); }
 
   function applySquareBasis() {
     const basis = getSquareBasis();
@@ -631,6 +645,7 @@ const CashModule = (() => {
     // Petty row only shows when it's actually part of the reconciliation.
     const pettyRow = document.getElementById('wk-petty-row');
     if (pettyRow) pettyRow.style.display = adj > 0 ? 'flex' : 'none';
+    setEl('wk-petty-label', drawerAvailable ? 'Plus petty cash (from banking)' : 'Plus petty cash');
     setEl('wk-petty-amount', '+$' + adj.toFixed(2));
 
     const recount = parseFloat(document.getElementById('wk-recount-input')?.value) || 0;
