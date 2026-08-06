@@ -262,7 +262,11 @@ const CashModule = (() => {
   // ── Weekly banking ─────────────────────────────
 
   let weeklyWeekStart = Holidays.getWeekStart();
-  let drawerMap = {};   // date → Square drawer figures for the selected week
+  let drawerMap = {};          // date → Square drawer figures for the selected week
+  let drawerWeekTotal = 0;     // Σ per-day drawer to-bank (summed day-by-day, not Square's weekly aggregate)
+  let drawerAvailable = false; // true once at least one drawer shift is found for the week
+  let squareCashNet = 0;       // payments-based weekly cash (fallback basis when no drawer data)
+  let currentWeekRecs = [];    // daily recs for the selected week (for variance recompute)
 
   function renderWeeklyPage() {
     const section = document.getElementById('cash-weekly-section');
@@ -380,7 +384,7 @@ const CashModule = (() => {
         </div>
         <div class="cost-divider"></div>
         <div class="drawer-row">
-          <span class="drawer-label">Square cash report</span>
+          <span class="drawer-label" id="wk-sq-mirror-label">Square cash report</span>
           <span class="drawer-val" id="wk-sq-cash-mirror">$—</span>
         </div>
         <div class="cost-divider"></div>
@@ -570,37 +574,60 @@ const CashModule = (() => {
 
     const allRecs  = Store.getCashRecs().filter(r => r.type === 'daily');
     const weekRecs = allRecs.filter(r => r.date >= weeklyWeekStart && r.date <= weekEnd);
-    drawerMap = {};   // avoid showing the previous week's drawer figures while the new week loads
+    currentWeekRecs = weekRecs;
+    // Reset the per-week Square state so we never mix another week's figures in.
+    drawerMap = {}; drawerWeekTotal = 0; drawerAvailable = false; squareCashNet = 0;
     renderWeeklyBreakdown(weekRecs, weeklyWeekStart, weekEnd);
     renderPettyCash(weeklyWeekStart, weekEnd);
 
-    // Per-day Square cash drawer figures — for per-day variances and filling
-    // missed days. Degrades gracefully (no per-day Square column) if the drawer
-    // scope isn't available or the call fails.
+    // Per-day Square cash drawer figures — the authoritative basis for the weekly
+    // reconciliation (summed day-by-day, since Square's weekly aggregate can add
+    // oddly). Degrades gracefully to the payments-based total if the drawer scope
+    // isn't available or the call fails.
     SquareAPI.getWeeklyDrawerByDay(weeklyWeekStart, weekEnd)
-      .then(drawerByDay => { drawerMap = drawerByDay || {}; renderWeeklyBreakdown(weekRecs, weeklyWeekStart, weekEnd); })
-      .catch(e => { console.warn('Drawer-by-day error:', e.message); drawerMap = {}; });
+      .then(drawerByDay => {
+        drawerMap = drawerByDay || {};
+        const dates = Object.keys(drawerMap);
+        drawerAvailable = dates.length > 0;
+        drawerWeekTotal = dates.reduce((s, d) => s + (drawerMap[d].toBank || 0), 0);
+        renderWeeklyBreakdown(weekRecs, weeklyWeekStart, weekEnd);
+        applySquareBasis();
+      })
+      .catch(e => { console.warn('Drawer-by-day error:', e.message); drawerAvailable = false; applySquareBasis(); });
 
     try {
       const totals = await SquareAPI.getWeeklyTotals(weeklyWeekStart, weekEnd);
       const cashGross   = totals.cashGross   || totals.cashSales || 0;
       const cashRefunds = totals.cashRefunds || 0;
-      const cashNet     = totals.cashSales   || 0;
+      squareCashNet     = totals.cashSales   || 0;
 
-      setEl('wk-sq-cash-gross', '$' + cashGross.toFixed(2));
-
+      setEl('wk-sq-cash-gross',   '$' + cashGross.toFixed(2));
       setEl('wk-sq-cash-refunds', cashRefunds > 0 ? '−$' + cashRefunds.toFixed(2) : '$0.00');
-
-      setEl('wk-sq-cash',        '$' + cashNet.toFixed(2));
-      setEl('wk-sq-cash-mirror', '$' + cashNet.toFixed(2));
-      // Now that Square cash is loaded, compute the variance. If a recount has
-      // been entered, use it (+ petty); otherwise fall back to the daily totals.
-      const ri = document.getElementById('wk-recount-input');
-      if (ri && parseFloat(ri.value) > 0) onRecountInput();
-      else recalcWeeklyVariance(weekRecs, cashNet);
+      setEl('wk-sq-cash',         '$' + squareCashNet.toFixed(2));
+      // Reconcile against the drawer sum when available, else the payments total.
+      applySquareBasis();
     } catch(e) {
       console.error('Weekly totals error:', e);
     }
+  }
+
+  // The Square figure the weekly check reconciles against: the day-by-day drawer
+  // sum when we have drawer data, otherwise the payments-based weekly cash.
+  function getSquareBasis() { return drawerAvailable ? drawerWeekTotal : squareCashNet; }
+
+  // Refresh the final-check "Square" line + variance from the current basis.
+  function applySquareBasis() {
+    const basis = getSquareBasis();
+    setEl('wk-sq-mirror-label', drawerAvailable ? 'Square cash drawer (7-day sum)' : 'Square cash report');
+    setEl('wk-sq-cash-mirror', basis > 0 ? '$' + basis.toFixed(2) : '$—');
+    if (!(basis > 0)) {   // no Square data loaded yet — don't show a misleading variance
+      const el = document.getElementById('wk-variance');
+      if (el) { el.textContent = '—'; el.dataset.state = 'neutral'; }
+      return;
+    }
+    const ri = document.getElementById('wk-recount-input');
+    if (ri && parseFloat(ri.value) > 0) recalcWeeklyVarianceFromInputs(parseFloat(ri.value), basis);
+    else recalcWeeklyVariance(currentWeekRecs, basis);
   }
 
   function onRecountInput() {
@@ -608,7 +635,7 @@ const CashModule = (() => {
     const total = val + (currentPettyTotal || 0);
     setEl('wk-recount-display', '$' + val.toFixed(2));
     setEl('wk-cash-plus-petty', '$' + total.toFixed(2));
-    const squareCash = parseFloat(document.getElementById('wk-sq-cash')?.textContent?.replace('$', '')) || 0;
+    const squareCash = getSquareBasis();
     if (squareCash) recalcWeeklyVarianceFromInputs(val, squareCash);
   }
 
@@ -774,7 +801,7 @@ const CashModule = (() => {
   function persistWeekly(silent) {
     const dailyTotal  = parseFloat(document.getElementById('wk-total-banked')?.textContent?.replace('$', ''))   || 0;
     const recount     = parseFloat(document.getElementById('wk-recount-input')?.value)                          || 0;
-    const squareCash  = parseFloat(document.getElementById('wk-sq-cash')?.textContent?.replace('$', ''))        || 0;
+    const squareCash  = getSquareBasis();   // day-by-day drawer sum (or payments fallback)
     const finalTotal  = recount || dailyTotal;
     const variance    = (finalTotal + (currentPettyTotal || 0)) - squareCash;
     Store.saveWeeklyRec({
@@ -785,6 +812,7 @@ const CashModule = (() => {
       dailyTotal,
       recount,
       squareCash,
+      squareBasis:  drawerAvailable ? 'drawer' : 'payments',
       pettyCash:    currentPettyTotal || 0,
       variance,
       notes:        document.getElementById('wk-notes')?.value || '',
