@@ -55,12 +55,19 @@ async function recentCustomerIds(sinceISO) {
   return [...ids];
 }
 
-// 2. Customer -> email. No email means nothing to sync.
-async function customerEmail(customerId) {
+// 2. Customer -> { email, id }. Square merges duplicate customer records (e.g. a
+// separate in-person and online record for the same person). After a merge, an
+// old payment's customer_id still resolves via GET, but the record returned is
+// the SURVIVING one, whose id differs from the id requested. Counting orders
+// against the stale id returns zero, so we return the current id too and callers
+// must use it. No email means nothing to sync.
+async function resolveCustomer(customerId) {
   const res = await sq(`/customers/${customerId}`);
   if (!res.ok) return null;
   const { customer } = await res.json();
-  return customer?.email_address?.toLowerCase() || null;
+  const email = customer?.email_address?.toLowerCase() || null;
+  if (!email) return null;
+  return { email, id: customer?.id || customerId };
 }
 
 // 3. Lifetime completed-order count for one customer.
@@ -122,6 +129,7 @@ export default async function handler(req, res) {
     trigger: isCron ? "cron" : "manual",
     customers_seen: 0,
     updated: 0,
+    merged_ids_resolved: 0,
     no_email: 0,
     errors: [],
   };
@@ -132,13 +140,18 @@ export default async function handler(req, res) {
 
     for (const id of customerIds) {
       try {
-        const email = await customerEmail(id);
-        if (!email) {
+        const resolved = await resolveCustomer(id);
+        if (!resolved) {
           summary.no_email++;
           continue;
         }
-        const count = await lifetimeOrderCount(id);
-        await writeBrevo(email, id, count);
+        // Use the SURVIVING id from the resolved record — not the payment's id,
+        // which may be stale after a Square merge — for both the order count and
+        // the EXT_ID written to Brevo, so a merged contact self-heals.
+        const currentId = resolved.id;
+        if (currentId !== id) summary.merged_ids_resolved++;
+        const count = await lifetimeOrderCount(currentId);
+        await writeBrevo(resolved.email, currentId, count);
         summary.updated++;
         await sleep(120);
       } catch (e) {
