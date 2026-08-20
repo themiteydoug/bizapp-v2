@@ -666,10 +666,15 @@ const XeroAPI = (() => {
   //    NOT excluded (Square gives wages only, so they must land in overheads).
   //  - COGS items (packaging, freight, courier): captured in the invoice/COGS
   //    cycle, so excluded here to avoid double-counting them too.
+  //  - "ATO Interest": a one-off correction of tax-office interest accrued over
+  //    several years — not a recurring running cost, so it would distort the
+  //    weekly average. (Ordinary "Interest Expense" is NOT excluded — the match
+  //    is the full "ato interest" phrase so it can't catch that account.)
   const OVERHEAD_EXCLUDE_KEYWORDS = [
     'wage', 'salary', 'salaries', 'payroll',
     'leave loading', 'annual leave', 'sick leave', 'long service',
     'packaging', 'freight', 'courier',
+    'ato interest',
   ];
 
   function isExcludedFromOverhead(accountName) {
