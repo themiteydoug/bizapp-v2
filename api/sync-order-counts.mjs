@@ -8,6 +8,9 @@ const BREVO = "https://api.brevo.com/v3";
 // Wavell Heights only.
 const LOCATION_IDS = ["6ZQJ7VAW6MQMP"];
 
+// Brevo "Main List".
+const MAIN_LIST_ID = 6;
+
 const sq = (path, init = {}) =>
   fetch(`${SQUARE}${path}`, {
     ...init,
@@ -97,13 +100,16 @@ async function lifetimeOrderCount(customerId) {
   return count;
 }
 
-// 4. Write the recomputed truth to Brevo (creates or updates).
+// 4. Write the recomputed truth to Brevo (creates or updates, adds to Main List).
+// listIds is additive on both create and update — replaces the "customer order
+// -> update contact list" Zapier automation this cron already runs alongside.
 async function writeBrevo(email, extId, orderCount) {
   const res = await brevo(`/contacts`, {
     method: "POST",
     body: JSON.stringify({
       email,
       updateEnabled: true,
+      listIds: [MAIN_LIST_ID],
       attributes: {
         ORDER_COUNT: orderCount,
         LAST_VISIT: new Date().toISOString().slice(0, 10),
