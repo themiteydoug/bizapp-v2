@@ -309,7 +309,7 @@ const CashModule = (() => {
       </div>
 
       <!-- Petty cash -->
-      <div class="section-label">Petty cash <span style="color:var(--text-3);font-weight:400">(money taken from the till)</span></div>
+      <div class="section-label">Petty cash <span style="color:var(--text-3);font-weight:400">(money taken from the till or the banking)</span></div>
       <div class="card">
         <div id="petty-list"></div>
         <div class="drawer-row">
@@ -536,17 +536,31 @@ const CashModule = (() => {
     const list = document.getElementById('petty-list');
     if (list) {
       list.innerHTML = entries.length
-        ? entries.map(e => `
+        ? entries.map(e => {
+            const bank = isBanking(e);
+            // Tap the pill to switch an entry between till (Square already knows,
+            // via a register Paid Out) and banking (taken from the cash to bank,
+            // so it's added back in the weekly reconciliation).
+            const pill = `<button class="petty-src" data-src="${e.id}" title="Tap to switch till / banking"
+                style="font-size:10px;font-weight:600;margin-left:8px;padding:2px 8px;border-radius:999px;cursor:pointer;border:1px solid ${bank ? 'var(--green-400)' : 'var(--border-md)'};background:${bank ? 'rgba(47,192,141,.14)' : 'transparent'};color:${bank ? 'var(--green-600)' : 'var(--text-3)'}">${bank ? 'Banking' : 'Till'} ⇄</button>`;
+            return `
             <div class="drawer-row" style="align-items:center">
-              <span class="drawer-label">${escHtml(e.notes && e.notes !== 'Petty cash' ? e.notes : 'Petty cash')}${e.hasPhoto ? ' 📷' : ''}${isBanking(e) ? ' <span style="font-size:10px;color:var(--text-3)">(banking)</span>' : ''}
+              <span class="drawer-label">${escHtml(e.notes && e.notes !== 'Petty cash' ? e.notes : 'Petty cash')}${e.hasPhoto ? ' 📷' : ''}${pill}
                 <button class="petty-del" data-del="${e.id}" title="Remove" style="background:none;border:none;color:var(--red-500);font-size:13px;cursor:pointer;margin-left:6px">✕</button>
               </span>
               <span class="drawer-val">$${(e.totalIncGst || 0).toFixed(2)}</span>
-            </div>`).join('')
+            </div>`;
+          }).join('')
         : '<div style="font-size:12px;color:var(--text-3);padding:4px 0">No petty cash this week</div>';
       list.querySelectorAll('.petty-del').forEach(b => b.addEventListener('click', () => {
         if (!confirm('Remove this petty cash entry?')) return;
         Store.deleteInvoice(b.dataset.del);
+        renderPettyCash(weekStart, weekEnd);
+      }));
+      list.querySelectorAll('.petty-src').forEach(b => b.addEventListener('click', () => {
+        const inv  = Store.getInvoices().find(i => i.id === b.dataset.src);
+        const next = (inv?.pettySource || 'till') === 'banking' ? 'till' : 'banking';
+        Store.updateInvoice(b.dataset.src, { pettySource: next });
         renderPettyCash(weekStart, weekEnd);
       }));
     }
