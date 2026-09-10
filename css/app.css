@@ -1044,3 +1044,120 @@ select.field-input { appearance: none; background-image: url("data:image/svg+xml
   text-align: center;
 }
 .photo-zone:active { border-color: var(--green-400); }
+
+/* =============================================
+   DESKTOP — PANEL DASHBOARD (≥1080px)
+   Everything below lives inside the media query, so the phone view is
+   completely untouched. Instead of one page at a time, every page renders
+   at once as a panel that scrolls inside its own box, and the bottom tab
+   bar becomes a left sidebar.
+   ============================================= */
+
+@media (min-width: 1080px) {
+
+  /* Shell: drop the 430px phone cap, header across the top, sidebar + main below */
+  #app {
+    max-width: none;
+    display: grid;
+    grid-template-columns: 236px 1fr;
+    grid-template-rows: auto 1fr;
+    grid-template-areas:
+      "header  header"
+      "sidebar main";
+    height: 100dvh;
+  }
+
+  #app-header { grid-area: header; }
+
+  /* Bottom tab bar → left sidebar */
+  #bottom-nav {
+    grid-area: sidebar;
+    height: auto;
+    padding: 14px 10px;
+    border-top: none;
+    border-right: 1px solid var(--border);
+    flex-direction: column;
+    align-items: stretch;
+    justify-content: flex-start;
+    gap: 2px;
+    overflow-y: auto;
+  }
+  .nav-item {
+    flex: 0 0 auto;
+    flex-direction: row;
+    justify-content: flex-start;
+    align-items: center;
+    gap: 12px;
+    padding: 11px 12px;
+    border-radius: var(--r-md);
+    font-size: 14px;
+    font-weight: 600;
+  }
+  .nav-item.active { background: var(--green-50); }
+  .nav-item:hover:not(.active) { background: var(--surface-2); }
+
+  /* Page container → the panel grid */
+  #page-container {
+    grid-area: main;
+    position: static;
+    overflow-y: auto;
+    overflow-x: hidden;
+    display: grid;
+    grid-template-columns: repeat(12, 1fr);
+    gap: 16px;
+    align-content: start;
+    padding: 18px 22px 40px;
+    background: var(--bg);
+  }
+
+  /* Every page is on screen at once, as its own card */
+  .page {
+    position: static;
+    inset: auto;
+    opacity: 1;
+    pointer-events: all;
+    transform: none;
+    transition: none;
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--r-lg);
+    overflow: hidden;
+  }
+
+  /* Each panel scrolls inside its own box */
+  .page-scroll {
+    height: auto;
+    max-height: 460px;
+    padding: 14px 16px 18px;
+  }
+
+  /* Panel placement */
+  #page-dashboard  { grid-column: span 12; }
+  #page-cash       { grid-column: span 7; }
+  #page-timesheets { grid-column: span 5; }
+  #page-invoices   { grid-column: span 6; }
+  #page-staff      { grid-column: span 6; }
+
+  /* Dashboard is the KPI strip: full width, no inner scrollbar, tiles in a row */
+  #page-dashboard .page-scroll {
+    max-height: none;
+    overflow: visible;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 14px;
+    align-items: flex-start;
+  }
+  #page-dashboard .page-scroll > * { flex: 1 1 100%; }   /* week selector etc. stay full width */
+  #page-dashboard .hero-metrics {
+    flex: 1 1 260px;
+    margin: 0 !important;                                 /* beats the inline margin-top:0 siblings */
+  }
+
+  /* Panel headings sit tighter than the mobile hero */
+  .page-hero { padding: 2px 0 12px; }
+  .page-title { font-size: 18px; letter-spacing: -0.2px; }
+  .page-subtitle { font-size: 12px; }
+}
