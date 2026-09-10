@@ -1127,34 +1127,59 @@ select.field-input { appearance: none; background-image: url("data:image/svg+xml
     overflow: hidden;
   }
 
-  /* Each panel scrolls inside its own box */
+  /* Each panel scrolls inside its own box. Viewport-relative so tall screens
+     show more instead of everything being capped at a fixed height. */
   .page-scroll {
     height: auto;
-    max-height: 460px;
+    max-height: clamp(340px, 46vh, 620px);
     padding: 14px 16px 18px;
+    scrollbar-gutter: stable;
   }
+  /* Make the inner scroll obvious — without a visible bar the panels just look
+     cut off mid-content. */
+  .page-scroll::-webkit-scrollbar { width: 10px; }
+  .page-scroll::-webkit-scrollbar-thumb {
+    background: var(--border-md);
+    border-radius: 20px;
+    border: 3px solid var(--surface);
+  }
+  .page-scroll::-webkit-scrollbar-track { background: transparent; }
 
-  /* Panel placement */
-  #page-dashboard  { grid-column: span 12; }
-  #page-cash       { grid-column: span 7; }
-  #page-timesheets { grid-column: span 5; }
-  #page-invoices   { grid-column: span 6; }
-  #page-staff      { grid-column: span 6; }
+  /* Panel placement — pinned to explicit rows/columns. The DOM order is
+     dashboard, invoices, cash, timesheets, staff, so relying on auto-placement
+     stranded Invoices on a row of its own with dead space beside it. */
+  #page-dashboard  { grid-column: 1 / -1;     grid-row: 1; }
+  #page-cash       { grid-column: 1 / span 7; grid-row: 2; }
+  #page-timesheets { grid-column: 8 / span 5; grid-row: 2; }
+  #page-invoices   { grid-column: 1 / span 6; grid-row: 3; }
+  #page-staff      { grid-column: 7 / span 6; grid-row: 3; }
 
-  /* Dashboard is the KPI strip: full width, no inner scrollbar, tiles in a row */
+  /* The dashboard is a KPI strip, not a panel: no card, no clipping. It was
+     rendering as a bordered box with overflow:hidden, which sliced the tiles
+     off mid-figure and hid their sub-labels. */
+  #page-dashboard {
+    background: none;
+    border: none;
+    border-radius: 0;
+    overflow: visible;
+  }
   #page-dashboard .page-scroll {
     max-height: none;
     overflow: visible;
+    padding: 0;
     display: flex;
     flex-wrap: wrap;
     gap: 14px;
     align-items: flex-start;
   }
   #page-dashboard .page-scroll > * { flex: 1 1 100%; }   /* week selector etc. stay full width */
+  /* Grow each tile group by how many tiles it holds, so all five end up the
+     same width across one row. The net-profit group holds a single tile. */
   #page-dashboard .hero-metrics {
-    flex: 1 1 260px;
-    margin: 0 !important;                                 /* beats the inline margin-top:0 siblings */
+    flex: 2 1 240px;
+    margin: 0 !important;
   }
+  #page-dashboard .hero-metrics.manager-only { flex: 1 1 130px; }
 
   /* Panel headings sit tighter than the mobile hero */
   .page-hero { padding: 2px 0 12px; }
