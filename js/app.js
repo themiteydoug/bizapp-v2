@@ -12,7 +12,27 @@ const App = (() => {
   // tabs for like-for-like comparisons. Defaults to the current week.
   let selectedWeek = null;
   function getWeek() { return selectedWeek || Holidays.getWeekStart(); }
-  function setWeek(weekStart) { if (weekStart) selectedWeek = weekStart; }
+
+  /**
+   * Set the shared week. `source` names the panel that changed it so the
+   * desktop broadcast below doesn't bounce back to it.
+   * The early return on an unchanged week is what stops broadcast loops.
+   */
+  function setWeek(weekStart, source) {
+    if (!weekStart || weekStart === selectedWeek) return;
+    selectedWeek = weekStart;
+    if (isDesktop()) syncPanelsToWeek(source);
+  }
+
+  // Desktop shows every panel at once, so moving the week at the top has to move
+  // them all together — otherwise the tiles and the panels below disagree.
+  function syncPanelsToWeek(source) {
+    const w = selectedWeek;
+    if (source !== 'dashboard')  { try { Dashboard.setWeek(w); }        catch (e) { console.warn('[week] dashboard',  e.message); } }
+    if (source !== 'cash')       { try { CashModule.setWeek(w); }       catch (e) { console.warn('[week] cash',       e.message); } }
+    if (source !== 'timesheets') { try { TimesheetsModule.loadWeek(w); }catch (e) { console.warn('[week] timesheets', e.message); } }
+    if (source !== 'invoices')   { try { InvoiceModule.setWeek(w); }    catch (e) { console.warn('[week] invoices',   e.message); } }
+  }
 
   // ── Desktop panel view ────────────────────────
   // At ≥1080px every page renders at once as a panel (see the desktop block at
@@ -27,10 +47,12 @@ const App = (() => {
     if (panelsReady || !isDesktop()) return;
     panelsReady = true;
     // Each guarded separately so one failing module can't blank the others.
+    // Staff is deliberately absent: it's payroll configuration, not weekly
+    // numbers, so it isn't a panel — it opens as a full page from the sidebar,
+    // which also avoids a Xero classification call per employee on every load.
     try { InvoiceModule.init(); }    catch (e) { console.warn('[panels] invoices',   e.message); }
     try { CashModule.init(); }       catch (e) { console.warn('[panels] cash',       e.message); }
     try { TimesheetsModule.init(); } catch (e) { console.warn('[panels] timesheets', e.message); }
-    try { StaffModule.init(); }      catch (e) { console.warn('[panels] staff',      e.message); }
   }
 
   // ── Navigation ────────────────────────────────
@@ -48,9 +70,17 @@ const App = (() => {
     });
 
     // On desktop the panels are all on screen already — jump to the one clicked
-    // instead of swapping which page is visible.
+    // instead of swapping which page is visible. Staff is the exception: it's
+    // not a panel, so it takes over the whole area as its own page.
     if (isDesktop()) {
-      target?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      const staffView = page === 'staff';
+      document.body.classList.toggle('staff-view', staffView);
+      if (staffView) {
+        StaffModule.init();
+        document.getElementById('page-container')?.scrollTo({ top: 0 });
+      } else {
+        target?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      }
       return;
     }
 

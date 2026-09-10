@@ -824,13 +824,22 @@ const CashModule = (() => {
     recalcWeeklyVarianceFromInputs(totalBanked, squareCash);
   }
 
+  // Adopt a week chosen elsewhere (desktop: the selector at the top drives every
+  // panel). No-op when it's already the week loaded, which also stops the
+  // broadcast bouncing back to whichever panel started it.
+  function setWeek(w) {
+    if (!w || w === weeklyWeekStart) return;
+    weeklyWeekStart = w;
+    loadWeeklyData();
+  }
+
   function weeklyNav(dir) {
     const d = new Date(weeklyWeekStart + 'T12:00:00');
     d.setDate(d.getDate() + dir * 7);
     const next = d.toISOString().slice(0, 10);
     if (next > new Date().toISOString().slice(0, 10)) return;
     weeklyWeekStart = next;
-    App.setWeek(weeklyWeekStart);
+    App.setWeek(weeklyWeekStart, 'cash');
     loadWeeklyData();
   }
 
@@ -870,6 +879,6 @@ const CashModule = (() => {
     return String(s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
   }
 
-  return { init, switchTab };
+  return { init, switchTab, setWeek };
 
 })();

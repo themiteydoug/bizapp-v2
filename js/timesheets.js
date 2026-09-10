@@ -108,7 +108,7 @@ const TimesheetsModule = (() => {
 
   async function loadWeek(weekStart) {
     currentWeekStart = weekStart;
-    App.setWeek(weekStart);
+    App.setWeek(weekStart, 'timesheets');
     document.getElementById('ts-week-label').textContent = Holidays.formatWeekLabel(weekStart);
     document.getElementById('ts-staff-list').innerHTML = '<div class="empty-state">Loading from Square…</div>';
     document.getElementById('ts-total-hours').textContent = '—';
