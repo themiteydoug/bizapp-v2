@@ -14,6 +14,25 @@ const App = (() => {
   function getWeek() { return selectedWeek || Holidays.getWeekStart(); }
   function setWeek(weekStart) { if (weekStart) selectedWeek = weekStart; }
 
+  // ── Desktop panel view ────────────────────────
+  // At ≥1080px every page renders at once as a panel (see the desktop block at
+  // the end of app.css), so every module must be initialised — not just the
+  // active one, which is all the phone view needs.
+  const desktopMQ = window.matchMedia('(min-width: 1080px)');
+  let panelsReady = false;
+
+  function isDesktop() { return desktopMQ.matches; }
+
+  function initPanels() {
+    if (panelsReady || !isDesktop()) return;
+    panelsReady = true;
+    // Each guarded separately so one failing module can't blank the others.
+    try { InvoiceModule.init(); }    catch (e) { console.warn('[panels] invoices',   e.message); }
+    try { CashModule.init(); }       catch (e) { console.warn('[panels] cash',       e.message); }
+    try { TimesheetsModule.init(); } catch (e) { console.warn('[panels] timesheets', e.message); }
+    try { StaffModule.init(); }      catch (e) { console.warn('[panels] staff',      e.message); }
+  }
+
   // ── Navigation ────────────────────────────────
 
   function nav(page) {
@@ -27,6 +46,13 @@ const App = (() => {
     document.querySelectorAll('.nav-item').forEach(btn => {
       btn.classList.toggle('active', btn.dataset.page === page);
     });
+
+    // On desktop the panels are all on screen already — jump to the one clicked
+    // instead of swapping which page is visible.
+    if (isDesktop()) {
+      target?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      return;
+    }
 
     if (page === 'dashboard')  Dashboard.show();
     if (page === 'cash')       CashModule.init();
@@ -375,6 +401,11 @@ const App = (() => {
     await XeroAPI.checkConnection();
 
     await Dashboard.init();
+
+    // Desktop shows every page at once, so bring the other panels up too, and
+    // again if the window is resized past the breakpoint.
+    initPanels();
+    desktopMQ.addEventListener('change', initPanels);
 
     // Start live cross-device sync (no-op if KV isn't configured).
     Sync.init();
