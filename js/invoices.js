@@ -60,7 +60,7 @@ const InvoiceModule = (() => {
       const d = new Date(currentWeekStart + 'T12:00:00');
       d.setDate(d.getDate() - 7);
       currentWeekStart = d.toISOString().slice(0, 10);
-      App.setWeek(currentWeekStart);
+      App.setWeek(currentWeekStart, 'invoices');
       document.getElementById('inv-week-label').textContent = Holidays.formatWeekLabel(currentWeekStart);
       loadWeekInvoices();
     });
@@ -70,7 +70,7 @@ const InvoiceModule = (() => {
       const next = d.toISOString().slice(0, 10);
       if (next > new Date().toISOString().slice(0, 10)) return;
       currentWeekStart = next;
-      App.setWeek(currentWeekStart);
+      App.setWeek(currentWeekStart, 'invoices');
       document.getElementById('inv-week-label').textContent = Holidays.formatWeekLabel(currentWeekStart);
       loadWeekInvoices();
     });
@@ -839,8 +839,19 @@ const InvoiceModule = (() => {
 
   // Re-render the week's invoice list (used by live sync when another device
   // adds/edits an invoice).
+  // Adopt a week chosen elsewhere (desktop: the selector at the top drives every
+  // panel). No-op when it's already the week loaded, which stops the broadcast
+  // bouncing back to whichever panel started it.
+  function setWeek(w) {
+    if (!w || w === currentWeekStart) return;
+    currentWeekStart = w;
+    const lbl = document.getElementById('inv-week-label');
+    if (lbl) lbl.textContent = Holidays.formatWeekLabel(currentWeekStart);
+    loadWeekInvoices();
+  }
+
   function reloadList() { if (document.getElementById('invoice-list')) loadWeekInvoices(); }
 
-  return { init, calcGST, save, startEdit, cancelEdit, updateSaveButtonLabel, reloadList };
+  return { init, calcGST, save, startEdit, cancelEdit, updateSaveButtonLabel, reloadList, setWeek };
 
 })();

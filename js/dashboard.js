@@ -52,7 +52,7 @@ const Dashboard = (() => {
       const d = new Date(currentWeekStart + 'T12:00:00');
       d.setDate(d.getDate() - 7);
       currentWeekStart = d.toISOString().slice(0, 10);
-      App.setWeek(currentWeekStart);
+      App.setWeek(currentWeekStart, 'dashboard');
       updateWeekLabel();
       refresh();
     });
@@ -63,7 +63,7 @@ const Dashboard = (() => {
       const thisWeek = Holidays.getWeekStart();
       if (next > thisWeek) return;
       currentWeekStart = next;
-      App.setWeek(currentWeekStart);
+      App.setWeek(currentWeekStart, 'dashboard');
       updateWeekLabel();
       refresh();
     });
@@ -73,6 +73,18 @@ const Dashboard = (() => {
   function updateWeekLabel() {
     const el = document.getElementById('dash-week-label');
     if (el) el.textContent = Holidays.formatWeekLabel(currentWeekStart);
+  }
+
+  // Adopt a week chosen elsewhere. On desktop every panel is on screen at once,
+  // so the single selector at the top drives them all through App.setWeek.
+  // No-op when it's already the week showing, which also stops the broadcast
+  // bouncing back to whichever panel started it.
+  function setWeek(w) {
+    if (!w || w === currentWeekStart) return;
+    currentWeekStart = w;
+    updateWeekLabel();
+    blankMetrics();
+    refresh();
   }
 
   // Called when navigating back to the dashboard. Unlike the other views,
@@ -236,6 +248,6 @@ const Dashboard = (() => {
     }
   }
 
-  return { init, show, refresh, checkUpcomingHolidays };
+  return { init, show, refresh, setWeek, checkUpcomingHolidays };
 
 })();
