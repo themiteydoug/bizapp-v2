@@ -1103,7 +1103,11 @@ select.field-input { appearance: none; background-image: url("data:image/svg+xml
     overflow-y: auto;
     overflow-x: hidden;
     display: grid;
-    grid-template-columns: repeat(12, 1fr);
+    /* Fixed phone-width left column + a flexible right column. The fixed column
+       exists so Cash rec. is EXACTLY the width it is on a phone (430px of
+       content + the 16px page-scroll padding each side) and therefore looks
+       identical in both views — it is never re-laid-out for desktop. */
+    grid-template-columns: 462px minmax(0, 1fr);
     gap: 16px;
     align-content: start;
     padding: 18px 22px 40px;
@@ -1148,10 +1152,10 @@ select.field-input { appearance: none; background-image: url("data:image/svg+xml
   /* Panel placement — pinned to explicit rows/columns. The DOM order is
      dashboard, invoices, cash, timesheets, staff, so relying on auto-placement
      stranded Invoices on a row of its own with dead space beside it. */
-  #page-dashboard  { grid-column: 1 / -1;     grid-row: 1; }
-  #page-cash       { grid-column: 1 / span 7; grid-row: 2; }
-  #page-timesheets { grid-column: 8 / span 5; grid-row: 2; }
-  #page-invoices   { grid-column: 1 / -1;     grid-row: 3; }
+  #page-dashboard  { grid-column: 1 / -1; grid-row: 1; }
+  #page-cash       { grid-column: 1;      grid-row: 2; }   /* pinned to phone width */
+  #page-timesheets { grid-column: 2;      grid-row: 2; }
+  #page-invoices   { grid-column: 1 / -1; grid-row: 3; }
 
   /* Staff mapping is payroll configuration, not weekly numbers, so it is not a
      dashboard panel. Clicking Staff in the sidebar swaps the whole area over to
