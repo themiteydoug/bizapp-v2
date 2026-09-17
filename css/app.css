@@ -1045,6 +1045,12 @@ select.field-input { appearance: none; background-image: url("data:image/svg+xml
 }
 .photo-zone:active { border-color: var(--green-400); }
 
+
+/* Desktop-only dashboard extras (summary cards + net-profit trend). Hidden by
+   default so the phone dashboard is exactly as it was; the desktop block near
+   the end of this file switches them on. */
+.dash-desk { display: none; }
+
 /* =============================================
    DESKTOP — PANEL DASHBOARD (≥1080px)
    Everything below lives inside the media query, so the phone view is
@@ -1152,10 +1158,13 @@ select.field-input { appearance: none; background-image: url("data:image/svg+xml
   /* Panel placement — pinned to explicit rows/columns. The DOM order is
      dashboard, invoices, cash, timesheets, staff, so relying on auto-placement
      stranded Invoices on a row of its own with dead space beside it. */
-  #page-dashboard  { grid-column: 1 / -1; grid-row: 1; }
-  #page-cash       { grid-column: 1;      grid-row: 2; }   /* pinned to phone width */
-  #page-timesheets { grid-column: 2;      grid-row: 2; }
-  #page-invoices   { grid-column: 1 / -1; grid-row: 3; }
+  /* The dashboard is the only thing on the front page now — the other modules
+     are summarised there (see .sum-card) and open as their own pages. */
+  #page-dashboard { grid-column: 1 / -1; grid-row: 1; }
+  #page-cash, #page-invoices, #page-timesheets { display: none; }
+
+  /* The dashboard isn't a bordered panel, so it needs no inner scrollbar */
+  #page-dashboard .page-scroll::-webkit-scrollbar { width: 0; }
 
   /* ── Focus view ───────────────────────────────────────────────────────
      The dashboard is the panel overview. Clicking any other module in the
@@ -1239,6 +1248,62 @@ select.field-input { appearance: none; background-image: url("data:image/svg+xml
     margin: 0 !important;
   }
   #page-dashboard .hero-metrics.manager-only { flex: 1 1 130px; }
+
+  /* ── Summary cards ────────────────────────────────────────────────
+     Each one is a button that opens the full page for that module. */
+  #dash-summaries {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+    gap: 14px;
+    width: 100%;
+    margin-top: 4px;
+  }
+  .sum-card {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+    text-align: left;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--r-lg);
+    padding: 14px 16px;
+    cursor: pointer;
+    font-family: var(--font);
+    transition: border-color .15s, transform .15s;
+  }
+  .sum-card:hover { border-color: var(--green-400); transform: translateY(-1px); }
+  .sum-card:focus-visible { outline: 2px solid var(--green-500); outline-offset: 2px; }
+  .sum-label { font-size: 11.5px; font-weight: 600; color: var(--text-3); }
+  .sum-value { font-size: 23px; font-weight: 750; color: var(--text-1); letter-spacing: -.02em;
+    font-variant-numeric: tabular-nums; }
+  .sum-sub { font-size: 11.5px; font-weight: 550; color: var(--text-3); font-variant-numeric: tabular-nums; }
+
+  /* ── Net profit trend ─────────────────────────────────────────────
+     Built from weeks already loaded (see Dashboard history), so it costs no
+     extra API calls — it fills in as weeks are viewed. */
+  #dash-trend-wrap {
+    display: block;
+    width: 100%;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--r-lg);
+    padding: 14px 16px 12px;
+  }
+  .trend-head { display: flex; justify-content: space-between; align-items: baseline;
+    font-size: 12.5px; font-weight: 650; color: var(--text-2); margin-bottom: 10px; }
+  .trend-hint { font-size: 11px; font-weight: 500; color: var(--text-3); }
+  .trend-bars { display: flex; align-items: flex-end; gap: 14px; height: 132px; }
+  .trend-col { flex: 1; display: flex; flex-direction: column; align-items: center;
+    justify-content: flex-end; gap: 6px; height: 100%; min-width: 0; }
+  .trend-col .fig { font-size: 11.5px; font-weight: 700; color: var(--text-2);
+    font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .trend-col .bar { width: 68%; min-height: 3px; border-radius: 6px 6px 3px 3px;
+    background: linear-gradient(180deg, var(--green-400), var(--green-600)); }
+  .trend-col.now .bar { background: linear-gradient(180deg, #3FD59D, var(--green-500));
+    box-shadow: 0 0 0 2px rgba(47,192,141,.25); }
+  .trend-col.neg .bar { background: linear-gradient(180deg, #e06a6a, var(--red-500)); }
+  .trend-col .cap { font-size: 10.5px; color: var(--text-3); white-space: nowrap; }
+  .trend-empty { font-size: 12px; color: var(--text-3); padding: 18px 0; text-align: center; }
 
   /* Panel headings sit tighter than the mobile hero */
   .page-hero { padding: 2px 0 12px; }

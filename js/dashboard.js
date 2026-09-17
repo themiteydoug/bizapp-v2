@@ -228,6 +228,88 @@ const Dashboard = (() => {
     set('dash-net',     netSales > 0 ? fmt(netProfit) : '$—');
     set('dash-net-pct', netSales > 0 ? pct(netProfit) : '— of net sales');
     alert('dash-net-tile', netSales > 0 && netProfit < 0);
+
+    // Desktop extras — no-ops on the phone, where these elements are hidden.
+    renderSummaries(weekStart, weekEnd, timesheets, weekInvoices, cogs);
+    if (netSales > 0) recordWeek(weekStart, netProfit);
+    renderTrend(weekStart);
+  }
+
+  // ── Desktop summary cards ─────────────────────
+  // Deliberately built from data already on hand — the timesheets and invoices
+  // the tiles just used, plus local cash records — so the front page costs no
+  // extra API calls.
+  function renderSummaries(weekStart, weekEnd, timesheets, weekInvoices, cogs) {
+    const set = (id, v) => { const el = document.getElementById(id); if (el) el.textContent = v; };
+    const money = n => '$' + Math.round(n || 0).toLocaleString();
+
+    // Cash rec — how much is counted, and how much of the week is done.
+    const recs = Store.getCashRecs().filter(r => r.type === 'daily' && r.date >= weekStart && r.date <= weekEnd);
+    const banked = recs.reduce((s, r) => s + (r.actualCash ?? r.actual ?? 0), 0);
+    set('sum-cash', recs.length ? money(banked) : '—');
+    set('sum-cash-sub', `${recs.length} of 7 days counted`);
+
+    // Invoices — this week's bills and what they add to COGS.
+    set('sum-inv', weekInvoices.length ? money(cogs) : '—');
+    set('sum-inv-sub', `${weekInvoices.length} bill${weekInvoices.length === 1 ? '' : 's'} this week`);
+
+    // Timesheets — hours and cost, straight off the staff-cost tile's data.
+    const hours = timesheets.reduce((s, e) => s + (e.totalHours || 0), 0);
+    const cost  = timesheets.reduce((s, e) => s + (e.estimatedCost || 0), 0);
+    set('sum-ts', hours ? hours.toFixed(1) + ' h' : '—');
+    set('sum-ts-sub', hours ? `${money(cost)} · ${timesheets.length} staff` : 'no hours yet');
+  }
+
+  // ── Net profit trend ──────────────────────────
+  // Each week's net profit is remembered as it's viewed, and the chart draws the
+  // last few. That keeps it free — no back-fetching six weeks of Square and Xero
+  // every time the dashboard loads.
+  const HIST_KEY = 'bizops_week_history';
+
+  function readHistory() {
+    try { return JSON.parse(localStorage.getItem(HIST_KEY) || '{}'); } catch { return {}; }
+  }
+
+  function recordWeek(weekStart, netProfit) {
+    try {
+      const h = readHistory();
+      h[weekStart] = Math.round(netProfit);
+      // Keep it small — a year of weeks is plenty.
+      const keys = Object.keys(h).sort();
+      while (keys.length > 52) delete h[keys.shift()];
+      localStorage.setItem(HIST_KEY, JSON.stringify(h));
+    } catch {}
+  }
+
+  function renderTrend(currentWeek) {
+    const el = document.getElementById('trend-bars');
+    if (!el) return;
+    const h = readHistory();
+    const weeks = Object.keys(h).sort().slice(-6);
+    const hint = document.getElementById('trend-hint');
+
+    if (weeks.length < 2) {
+      el.innerHTML = '<div class="trend-empty">Browse a few weeks and the trend builds here.</div>';
+      if (hint) hint.textContent = '';
+      return;
+    }
+    const vals = weeks.map(w => h[w]);
+    const peak = Math.max(...vals.map(Math.abs), 1);
+    if (hint) hint.textContent = `last ${weeks.length} weeks viewed`;
+
+    el.innerHTML = weeks.map(w => {
+      const v = h[w];
+      const pctH = Math.max(3, Math.round(Math.abs(v) / peak * 100));
+      const d = new Date(w + 'T12:00:00');
+      const cap = d.toLocaleDateString('en-AU', { day: 'numeric', month: 'short' });
+      const cls = (v < 0 ? ' neg' : '') + (w === currentWeek ? ' now' : '');
+      const fig = (v < 0 ? '-$' : '$') + Math.abs(Math.round(v / 100) / 10).toFixed(1) + 'k';
+      return `<div class="trend-col${cls}">
+        <div class="fig">${fig}</div>
+        <div class="bar" style="height:${pctH}%"></div>
+        <div class="cap">${cap}</div>
+      </div>`;
+    }).join('');
   }
 
   function updateSyncTime() {
