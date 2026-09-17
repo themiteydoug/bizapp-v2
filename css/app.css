@@ -1221,13 +1221,18 @@ select.field-input { appearance: none; background-image: url("data:image/svg+xml
       "weeknav   formlabel"
       "listlabel form"
       "list      form";
+    /* The form spans the last two rows, and a spanning item's extra height is
+       shared out between the auto rows it covers — which pushed the entry list
+       half a page down. A flexible last row takes all of it instead, so the
+       entries start directly under their label. */
+    grid-template-rows: auto auto auto 1fr;
     gap: 0 20px;
     align-content: start;
   }
   body.focus-view #page-invoices .page-hero        { grid-area: hero; }
   body.focus-view #page-invoices #invoice-week-nav { grid-area: weeknav; }
   body.focus-view #page-invoices #inv-list-label   { grid-area: listlabel; }
-  body.focus-view #page-invoices #invoice-list     { grid-area: list; }
+  body.focus-view #page-invoices #invoice-list     { grid-area: list; align-self: start; }
   body.focus-view #page-invoices #inv-form-label   { grid-area: formlabel; }
   body.focus-view #page-invoices #invoice-form     { grid-area: form; align-self: start; }
 
@@ -1242,7 +1247,8 @@ select.field-input { appearance: none; background-image: url("data:image/svg+xml
     gap: 18px;
     align-items: flex-start;
   }
-  body.focus-view #page-cash .page-hero { flex: 0 0 100%; }
+  body.focus-view #page-cash .page-hero,
+  body.focus-view #page-cash .week-selector { flex: 0 0 100%; }
   body.focus-view #page-cash #cash-daily-section,
   body.focus-view #page-cash #cash-weekly-section {
     /* !important beats the inline display the tab switcher sets */
@@ -1254,9 +1260,12 @@ select.field-input { appearance: none; background-image: url("data:image/svg+xml
   /* One week selector, at the top. The panels below follow it (App.setWeek
      broadcasts to every module on desktop), so their own selectors would just
      be duplicate controls fighting each other. */
-  #page-cash .week-selector,
-  #page-timesheets .week-selector,
-  #page-invoices .week-selector { display: none; }
+  /* :not(.focused) again — an ID selector outranks .page.focused, so without
+     it these pages lost their week nav the moment they became the focused
+     page, leaving a gap where the control should be. */
+  #page-cash:not(.focused) .week-selector,
+  #page-timesheets:not(.focused) .week-selector,
+  #page-invoices:not(.focused) .week-selector { display: none; }
 
   /* …but on its own page the dashboard's selector isn't on screen, so the
      page's own one comes back. It still drives every other panel through
@@ -1368,8 +1377,23 @@ select.field-input { appearance: none; background-image: url("data:image/svg+xml
     align-content: start;
   }
   body.focus-view #page-timesheets .page-hero      { grid-area: hero; }
-  body.focus-view #page-timesheets .week-selector  { grid-area: weeknav; }
-  body.focus-view #page-timesheets .hero-metrics   { grid-area: metrics; align-self: center; }
+  body.focus-view #page-timesheets .week-selector  { grid-area: weeknav; align-self: center; }
+  /* The two totals sit beside the week nav as a compact strip, not a pair of
+     full-width slabs — that kept row 2 short, which is what lifts the staff
+     list up level with the detail column. */
+  body.focus-view #page-timesheets .hero-metrics {
+    grid-area: metrics;
+    display: flex; gap: 10px;
+    justify-self: end; align-self: center;
+    margin: 0;
+  }
+  body.focus-view #page-timesheets .hero-card {
+    display: flex; align-items: baseline; gap: 9px;
+    padding: 9px 14px;
+  }
+  body.focus-view #page-timesheets .hero-label { margin-bottom: 0; }
+  body.focus-view #page-timesheets .hero-value { font-size: 17px; letter-spacing: -0.3px; }
+  body.focus-view #page-timesheets .hero-delta { margin-top: 0; }
   body.focus-view #page-timesheets #ts-list-label  { grid-area: listlbl; }
   body.focus-view #page-timesheets #ts-staff-list  { grid-area: list; align-self: start; }
   body.focus-view #page-timesheets #ts-detail      { grid-area: detail; display: block; align-self: start; }
