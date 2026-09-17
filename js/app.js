@@ -28,31 +28,38 @@ const App = (() => {
   // them all together — otherwise the tiles and the panels below disagree.
   function syncPanelsToWeek(source) {
     const w = selectedWeek;
-    if (source !== 'dashboard')  { try { Dashboard.setWeek(w); }        catch (e) { console.warn('[week] dashboard',  e.message); } }
-    if (source !== 'cash')       { try { CashModule.setWeek(w); }       catch (e) { console.warn('[week] cash',       e.message); } }
-    if (source !== 'timesheets') { try { TimesheetsModule.loadWeek(w); }catch (e) { console.warn('[week] timesheets', e.message); } }
-    if (source !== 'invoices')   { try { InvoiceModule.setWeek(w); }    catch (e) { console.warn('[week] invoices',   e.message); } }
+    if (source !== 'dashboard') { try { Dashboard.setWeek(w); } catch (e) { console.warn('[week] dashboard', e.message); } }
+    // Only modules that have been opened have DOM to update.
+    if (source !== 'cash'       && inited.has('cash'))       { try { CashModule.setWeek(w); }        catch (e) { console.warn('[week] cash',       e.message); } }
+    if (source !== 'timesheets' && inited.has('timesheets')) { try { TimesheetsModule.loadWeek(w); } catch (e) { console.warn('[week] timesheets', e.message); } }
+    if (source !== 'invoices'   && inited.has('invoices'))   { try { InvoiceModule.setWeek(w); }     catch (e) { console.warn('[week] invoices',   e.message); } }
   }
 
-  // ── Desktop panel view ────────────────────────
-  // At ≥1080px every page renders at once as a panel (see the desktop block at
-  // the end of app.css), so every module must be initialised — not just the
-  // active one, which is all the phone view needs.
+  // ── Desktop layout ────────────────────────────
+  // At ≥1080px the app lays out as a dashboard: a sidebar, the KPI strip and
+  // summary cards on the front page, and each module opening as its own
+  // full-width page. See the desktop block at the end of app.css.
   const desktopMQ = window.matchMedia('(min-width: 1080px)');
-  let panelsReady = false;
 
   function isDesktop() { return desktopMQ.matches; }
 
-  function initPanels() {
-    if (panelsReady || !isDesktop()) return;
-    panelsReady = true;
-    // Each guarded separately so one failing module can't blank the others.
-    // Staff is deliberately absent: it's payroll configuration, not weekly
-    // numbers, so it isn't a panel — it opens as a full page from the sidebar,
-    // which also avoids a Xero classification call per employee on every load.
-    try { InvoiceModule.init(); }    catch (e) { console.warn('[panels] invoices',   e.message); }
-    try { CashModule.init(); }       catch (e) { console.warn('[panels] cash',       e.message); }
-    try { TimesheetsModule.init(); } catch (e) { console.warn('[panels] timesheets', e.message); }
+  // Modules are no longer rendered on the front page — the dashboard summarises
+  // them — so each one initialises the first time it's actually opened. That
+  // keeps desktop startup to the dashboard's own data instead of every module's.
+  const inited = new Set();
+
+  function initModule(page) {
+    if (inited.has(page)) return;
+    inited.add(page);
+    try {
+      if (page === 'invoices')   InvoiceModule.init();
+      if (page === 'cash')       CashModule.init();
+      if (page === 'timesheets') TimesheetsModule.init();
+      if (page === 'staff')      StaffModule.init();
+    } catch (e) {
+      inited.delete(page);                       // let it retry on the next open
+      console.warn('[module] ' + page, e.message);
+    }
   }
 
   // ── Navigation ────────────────────────────────
@@ -69,17 +76,16 @@ const App = (() => {
       btn.classList.toggle('active', btn.dataset.page === page);
     });
 
-    // On desktop the dashboard is the panel overview; every other tab takes over
-    // the whole content area as its own working page (see the focus-view block
-    // in app.css). The panel modules are already initialised at boot, so
-    // switching is pure CSS — only Staff needs initialising on first open.
+    // On desktop the dashboard is the summary overview; every other tab takes
+    // over the whole content area as its own working page (see the focus-view
+    // block in app.css). Each module initialises the first time it's opened.
     if (isDesktop()) {
       const focus = page !== 'dashboard';
       document.body.classList.toggle('focus-view', focus);
       document.querySelectorAll('.page').forEach(p => p.classList.remove('focused'));
       if (focus) {
         target?.classList.add('focused');
-        if (page === 'staff') StaffModule.init();
+        initModule(page);
         document.getElementById('page-container')?.scrollTo({ top: 0 });
       }
       return;
@@ -390,6 +396,12 @@ const App = (() => {
 
   // ── Bottom nav ────────────────────────────────
 
+  // Dashboard summary cards open the module they summarise.
+  function bindSummaryCards() {
+    document.querySelectorAll('.sum-card[data-open]').forEach(btn =>
+      btn.addEventListener('click', () => nav(btn.dataset.open)));
+  }
+
   function bindNav() {
     document.querySelectorAll('.nav-item').forEach(btn => {
       btn.addEventListener('click', () => nav(btn.dataset.page));
@@ -423,6 +435,7 @@ const App = (() => {
 
     applyRoleUI();
     bindNav();
+    bindSummaryCards();
     bindSync();
     bindSettings();
     initPWA();
@@ -432,11 +445,6 @@ const App = (() => {
     await XeroAPI.checkConnection();
 
     await Dashboard.init();
-
-    // Desktop shows every page at once, so bring the other panels up too, and
-    // again if the window is resized past the breakpoint.
-    initPanels();
-    desktopMQ.addEventListener('change', initPanels);
 
     // Start live cross-device sync (no-op if KV isn't configured).
     Sync.init();

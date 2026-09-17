@@ -118,6 +118,34 @@
             </div>
           </div>
 
+          <!-- Desktop only. Hidden on the phone (.dash-desk is display:none until
+               the desktop breakpoint), so the phone dashboard is unchanged. -->
+          <div class="dash-desk" id="dash-summaries">
+            <button class="sum-card" data-open="cash">
+              <span class="sum-label">Cash rec.</span>
+              <span class="sum-value" id="sum-cash">$—</span>
+              <span class="sum-sub" id="sum-cash-sub">—</span>
+            </button>
+            <button class="sum-card" data-open="invoices">
+              <span class="sum-label">Invoices</span>
+              <span class="sum-value" id="sum-inv">$—</span>
+              <span class="sum-sub" id="sum-inv-sub">—</span>
+            </button>
+            <button class="sum-card" data-open="timesheets">
+              <span class="sum-label">Timesheets</span>
+              <span class="sum-value" id="sum-ts">—</span>
+              <span class="sum-sub" id="sum-ts-sub">—</span>
+            </button>
+          </div>
+
+          <div class="dash-desk manager-only" id="dash-trend-wrap">
+            <div class="trend-head">
+              <span>Net profit · recent weeks</span>
+              <span class="trend-hint" id="trend-hint"></span>
+            </div>
+            <div class="trend-bars" id="trend-bars"></div>
+          </div>
+
         </div>
       </section>
 
