@@ -8,6 +8,13 @@ const TimesheetsModule = (() => {
   let currentWeekStart = Holidays.getWeekStart();
   let currentTimesheets = [];
 
+  // Desktop only — the right-hand column that compares the roster with what
+  // was actually clocked. The phone view never builds any of this.
+  const tsDeskMQ = window.matchMedia('(min-width: 1080px)');
+  let rosterByMember = new Map();   // squareId → [{ date, startMin, endMin, hours }]
+  let selectedStaff  = null;        // squareId shown in the detail column
+  const rosteredForKey = new Map(); // shift key → rostered hours, for live diffs
+
   function init() {
     bindEvents();
     loadWeek(App.getWeek());   // shared across tabs
@@ -33,6 +40,23 @@ const TimesheetsModule = (() => {
     if (list && !list.dataset.editBound) {
       list.dataset.editBound = '1';
       list.addEventListener('change', onHoursEdit);
+      // On desktop a card opens in the detail column instead of expanding
+      list.addEventListener('click', e => {
+        if (!tsDeskMQ.matches) return;
+        const card = e.target.closest('.staff-card');
+        if (!card || !card.dataset.sq) return;
+        selectStaff(card.dataset.sq);
+      });
+    }
+    const detail = document.getElementById('ts-detail');
+    if (detail && !detail.dataset.editBound) {
+      detail.dataset.editBound = '1';
+      detail.addEventListener('change', onHoursEdit);
+      // An iPad turned on its side crosses into the desktop layout — fill the
+      // detail column in rather than waiting for the next week change.
+      tsDeskMQ.addEventListener('change', () => {
+        if (tsDeskMQ.matches && currentTimesheets.length) loadRosterComparison(currentWeekStart);
+      });
     }
   }
 
@@ -47,6 +71,7 @@ const TimesheetsModule = (() => {
     // the manager can keep editing down the list without reopening it.
     updateRowInPlace(input);
     updateWeekTotals();
+    updateDiffCell(input.dataset.key);
   }
 
   // Refresh the edited row's input value, its "was Xh" marker and the staff
@@ -77,8 +102,13 @@ const TimesheetsModule = (() => {
       mark.remove();
     }
 
-    const badge = input.closest('.staff-card')?.querySelector('.staff-hours-badge');
+    // The edit can come from the card itself or from the desktop detail column,
+    // so update the card's badge by id rather than by walking up from the input.
+    const badge = document.querySelector(`.staff-card[data-sq="${squareId}"] .staff-hours-badge`)
+      || input.closest('.staff-card')?.querySelector('.staff-hours-badge');
     if (badge) badge.textContent = ts.totalHours + 'h';
+    const deskTotal = document.getElementById('ts-detail-total');
+    if (deskTotal && selectedStaff === squareId) deskTotal.textContent = ts.totalHours + 'h';
   }
 
   function updateWeekTotals() {
@@ -123,6 +153,7 @@ const TimesheetsModule = (() => {
       renderTimesheets(currentTimesheets, weekStart);
       renderPushStatus(weekStart);
       renderHolidayAlert(weekStart);
+      if (tsDeskMQ.matches) loadRosterComparison(weekStart);
     } catch (e) {
       document.getElementById('ts-staff-list').innerHTML =
         `<div class="empty-state">Error loading timesheets: ${e.message}</div>`;
@@ -193,7 +224,7 @@ const TimesheetsModule = (() => {
       }).join('');
 
       return `
-        <div class="staff-card">
+        <div class="staff-card" data-sq="${ts.squareId}">
           <div class="staff-card-inner" onclick="this.closest('.staff-card').querySelector('.ts-days').classList.toggle('hidden')">
             <div class="staff-avatar">${initials}</div>
             <div class="staff-card-info">
@@ -298,6 +329,194 @@ const TimesheetsModule = (() => {
         Push timesheets to Xero
       `;
     }
+  }
+
+  // ═══════════════════════════════════════════════════════════════
+  //  ROSTERED vs ACTUAL (desktop detail column)
+  //  Left column stays the staff list; clicking a name fills this one
+  //  with their shifts, the roster they were given, and the gap between
+  //  the two. Hours stay editable here, same as on the card.
+  // ═══════════════════════════════════════════════════════════════
+
+  const DIFF_TOLERANCE = 0.25;   // 15 minutes — below this nothing is flagged
+
+  function clockOf(iso) {
+    // '2026-09-15T09:30:00+10:00' — read the wall clock off the string so the
+    // browser's own timezone can never shift it.
+    const m = /T(\d{2}):(\d{2})/.exec(iso || '');
+    if (!m) return '—';
+    return minsToClock(+m[1] * 60 + +m[2]);
+  }
+
+  function minsToClock(min) {
+    let h = Math.floor(min / 60) % 24;
+    const mm = min % 60;
+    const ap = h >= 12 ? 'p' : 'a';
+    h = h % 12 || 12;
+    return mm ? `${h}:${String(mm).padStart(2, '0')}${ap}` : `${h}${ap}`;
+  }
+
+  function hrs(n) {
+    return (Math.round(n * 100) / 100).toFixed(n % 1 === 0 ? 0 : 2).replace(/0$/, '').replace(/\.$/, '') + 'h';
+  }
+
+  async function loadRosterComparison(weekStart) {
+    rosterByMember = new Map();
+    renderDetail();                       // draw now; the roster fills in after
+    try {
+      const weekEnd = Holidays.getWeekEnd(weekStart);
+      const { shifts } = await SquareAPI.getRosterWeek(weekStart, weekEnd);
+      shifts.forEach(s => {
+        const startMin = rosterMins(s.startAt);
+        let endMin = rosterMins(s.endAt);
+        if (endMin <= startMin) endMin += 1440;
+        const list = rosterByMember.get(s.teamMemberId) || [];
+        list.push({ date: s.startAt.slice(0, 10), startMin, endMin, hours: (endMin - startMin) / 60 });
+        rosterByMember.set(s.teamMemberId, list);
+      });
+    } catch (e) {
+      console.warn('[timesheets] roster unavailable:', e.message);
+    }
+    renderDetail();
+  }
+
+  function rosterMins(iso) {
+    const m = /T(\d{2}):(\d{2})/.exec(iso || '');
+    return m ? (+m[1] * 60 + +m[2]) : 0;
+  }
+
+  function selectStaff(squareId) {
+    selectedStaff = String(squareId);
+    document.querySelectorAll('#ts-staff-list .staff-card').forEach(c => {
+      c.classList.toggle('selected', c.dataset.sq === selectedStaff);
+    });
+    renderDetail();
+  }
+
+  // Pair each day's clocked shifts against that day's rostered ones in start
+  // order. A leftover on either side is a shift that was worked but never
+  // rostered, or rostered but never clocked into.
+  function pairShifts(ts) {
+    const rostered = rosterByMember.get(ts.squareId) || [];
+    const dates = [...new Set([...ts.shifts.map(s => s.date), ...rostered.map(r => r.date)])].sort();
+    const rows = [];
+    dates.forEach(date => {
+      const actual = ts.shifts.filter(s => s.date === date)
+        .sort((a, b) => (a.startTime || '').localeCompare(b.startTime || ''));
+      const plan = rostered.filter(r => r.date === date).sort((a, b) => a.startMin - b.startMin);
+      const n = Math.max(actual.length, plan.length);
+      for (let i = 0; i < n; i++) rows.push({ date, actual: actual[i] || null, plan: plan[i] || null });
+    });
+    return rows;
+  }
+
+  function renderDetail() {
+    const panel = document.getElementById('ts-detail');
+    if (!panel || !tsDeskMQ.matches) return;
+
+    if (!currentTimesheets.length) {
+      panel.innerHTML = '<div class="empty-state">No shifts to compare this week.</div>';
+      return;
+    }
+    if (!selectedStaff || !currentTimesheets.some(t => String(t.squareId) === selectedStaff)) {
+      selectedStaff = String(currentTimesheets[0].squareId);
+      document.querySelectorAll('#ts-staff-list .staff-card').forEach(c => {
+        c.classList.toggle('selected', c.dataset.sq === selectedStaff);
+      });
+    }
+    const ts = currentTimesheets.find(t => String(t.squareId) === selectedStaff);
+    const canEdit = Auth.isManager();
+    const rows = pairShifts(ts);
+    const haveRoster = rosterByMember.size > 0;
+    rosteredForKey.clear();   // only the panel on screen needs live diffs
+
+    let planTotal = 0, actualTotal = 0, flags = 0;
+
+    const body = rows.map(r => {
+      const planHours = r.plan ? r.plan.hours : 0;
+      const actHours  = r.actual ? r.actual.hours : 0;
+      planTotal   += planHours;
+      actualTotal += actHours;
+
+      const key = r.actual ? `${ts.squareId}|${r.actual.startTime}` : '';
+      if (key) rosteredForKey.set(key, r.plan ? planHours : null);
+
+      const planCell = r.plan
+        ? `<span class="td-time">${minsToClock(r.plan.startMin)}–${minsToClock(r.plan.endMin)}</span><span class="td-sub">${hrs(planHours)}</span>`
+        : `<span class="td-flag">Not rostered</span>`;
+
+      const actCell = r.actual
+        ? `<span class="td-time">${clockOf(r.actual.startTime)}–${r.actual.endTime ? clockOf(r.actual.endTime) : 'on now'}</span>
+           <span class="td-sub">Square ${hrs(r.actual.squareHours)}</span>`
+        : `<span class="td-flag">No clock-in</span>`;
+
+      const hoursCell = !r.actual ? '<span class="td-sub">—</span>'
+        : canEdit
+          ? `<input class="ts-hours-input" type="number" inputmode="decimal" step="0.25" min="0"
+               value="${r.actual.hours}" data-key="${key}" title="Square recorded ${r.actual.squareHours}h">`
+          : `<span class="ts-hours">${r.actual.hours}h</span>`;
+
+      // No roster loaded yet → no verdict to give, so nothing is flagged.
+      const diff = r.plan && r.actual ? actHours - planHours : null;
+      if (haveRoster && (!r.plan || !r.actual || Math.abs(diff) >= DIFF_TOLERANCE)) flags++;
+
+      return `
+        <tr class="${r.plan && r.actual ? '' : 'row-flag'}">
+          <th scope="row">${Holidays.formatDateLabel(r.date)}</th>
+          <td>${haveRoster ? planCell : '<span class="td-sub">—</span>'}</td>
+          <td>${actCell}</td>
+          <td class="td-hours">${hoursCell}</td>
+          <td class="td-diff" data-diff-key="${key}">${diffMarkup(diff, haveRoster)}</td>
+        </tr>`;
+    }).join('');
+
+    panel.innerHTML = `
+      <div class="ts-detail-head">
+        <div>
+          <div class="ts-detail-name">${ts.name}</div>
+          <div class="ts-detail-sub">${ts.shifts.length} shift${ts.shifts.length === 1 ? '' : 's'}${ts.salaried ? ' · salaried' : ''}${
+            haveRoster && flags ? ` · <span class="td-flag">${flags} to check</span>` : haveRoster ? ' · matches the roster' : ''}</div>
+        </div>
+        <div class="ts-detail-total" id="ts-detail-total">${ts.totalHours}h</div>
+      </div>
+      <table class="ts-detail-table">
+        <thead>
+          <tr><th>Day</th><th>Rostered</th><th>Clocked</th><th class="td-hours">Hours</th><th class="td-diff">Diff</th></tr>
+        </thead>
+        <tbody>${body}</tbody>
+        <tfoot>
+          <tr>
+            <th>Week</th>
+            <td>${haveRoster ? hrs(planTotal) : '—'}</td>
+            <td>${hrs(actualTotal)}</td>
+            <td class="td-hours">${ts.totalHours}h</td>
+            <td class="td-diff">${diffMarkup(haveRoster ? actualTotal - planTotal : null, haveRoster)}</td>
+          </tr>
+        </tfoot>
+      </table>
+      ${haveRoster ? '' : '<div class="ts-detail-note">No published roster for this week, so there is nothing to compare against.</div>'}`;
+  }
+
+  function diffMarkup(diff, haveRoster) {
+    if (!haveRoster || diff == null) return '<span class="td-sub">—</span>';
+    const rounded = Math.round(diff * 100) / 100;
+    if (Math.abs(rounded) < DIFF_TOLERANCE) return '<span class="diff-ok">on plan</span>';
+    const sign = rounded > 0 ? '+' : '−';
+    return `<span class="${rounded > 0 ? 'diff-over' : 'diff-under'}">${sign}${hrs(Math.abs(rounded))}</span>`;
+  }
+
+  // Keep the diff honest after a manager edits the hours, without re-rendering
+  // the panel and stealing focus from the next field.
+  function updateDiffCell(key) {
+    const cell = document.querySelector(`[data-diff-key="${key}"]`);
+    if (!cell) return;
+    const planHours = rosteredForKey.get(key);
+    if (planHours == null) return;
+    const sep = key.indexOf('|');
+    const ts = currentTimesheets.find(t => String(t.squareId) === key.slice(0, sep));
+    const shift = ts?.shifts.find(s => s.startTime === key.slice(sep + 1));
+    if (!shift) return;
+    cell.innerHTML = diffMarkup(shift.hours - planHours, true);
   }
 
   return { init, loadWeek };

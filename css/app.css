@@ -1337,6 +1337,39 @@ select.field-input { appearance: none; background-image: url("data:image/svg+xml
   .page-title { font-size: 18px; letter-spacing: -0.2px; }
   .page-subtitle { font-size: 12px; }
 
+  /* ── Timesheets: staff on the left, their week on the right ───────────
+     Grid areas rather than auto-placement, because the DOM order is hero →
+     week nav → metrics → list → detail → alert → push. */
+  body.focus-view #page-timesheets .page-scroll {
+    display: grid;
+    grid-template-columns: 400px minmax(0, 1fr);
+    grid-template-areas:
+      "hero    hero"
+      "weeknav metrics"
+      "listlbl detail"
+      "list    detail"
+      "alert   detail"
+      "push    detail";
+    gap: 0 20px;
+    align-content: start;
+  }
+  body.focus-view #page-timesheets .page-hero      { grid-area: hero; }
+  body.focus-view #page-timesheets .week-selector  { grid-area: weeknav; }
+  body.focus-view #page-timesheets .hero-metrics   { grid-area: metrics; align-self: center; }
+  body.focus-view #page-timesheets #ts-list-label  { grid-area: listlbl; }
+  body.focus-view #page-timesheets #ts-staff-list  { grid-area: list; align-self: start; }
+  body.focus-view #page-timesheets #ts-detail      { grid-area: detail; display: block; align-self: start; }
+  body.focus-view #page-timesheets #ph-alert       { grid-area: alert; }
+  body.focus-view #page-timesheets .push-section   { grid-area: push; }
+
+  /* A card opens in the detail column, so it never expands in place */
+  body.focus-view #page-timesheets .ts-days { display: none !important; }
+  body.focus-view #page-timesheets .staff-card { cursor: pointer; }
+  body.focus-view #page-timesheets .staff-card.selected {
+    border-color: var(--green-500);
+    box-shadow: inset 3px 0 0 var(--green-500);
+  }
+
   /* The roster is the point of the Staff page on a big screen */
   #staff-roster-wrap { display: block; }
   body.focus-view #page-staff .page-scroll { display: block; }
@@ -1431,6 +1464,57 @@ select.field-input { appearance: none; background-image: url("data:image/svg+xml
 .lg-item { display: inline-flex; align-items: center; gap: 6px; }
 .lg-chip {
   width: 15px; height: 11px; border-radius: 3px; border: 1px solid; display: inline-block;
+}
+
+/* =============================================
+   TIMESHEETS — rostered vs actual detail column (desktop)
+   ============================================= */
+#ts-detail {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--r-lg);
+  padding: 14px 16px 12px;
+}
+.ts-detail-head {
+  display: flex; align-items: flex-start; justify-content: space-between;
+  gap: 16px; padding-bottom: 10px; margin-bottom: 8px;
+  border-bottom: 1px solid var(--border);
+}
+.ts-detail-name { font-size: 15px; font-weight: 700; color: var(--text-1); }
+.ts-detail-sub  { font-size: 11.5px; font-weight: 550; color: var(--text-3); margin-top: 3px; }
+.ts-detail-total {
+  font-size: 22px; font-weight: 750; color: var(--text-1);
+  letter-spacing: -.02em; font-variant-numeric: tabular-nums;
+}
+.ts-detail-note { font-size: 11.5px; color: var(--text-3); margin-top: 10px; }
+
+.ts-detail-table { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+.ts-detail-table th, .ts-detail-table td {
+  text-align: left; padding: 7px 8px; vertical-align: middle;
+  border-bottom: 1px solid var(--border);
+}
+.ts-detail-table thead th {
+  font-size: 11px; font-weight: 650; color: var(--text-3);
+  text-transform: uppercase; letter-spacing: .04em; padding-bottom: 5px;
+}
+.ts-detail-table tbody th { font-weight: 650; color: var(--text-1); white-space: nowrap; }
+.ts-detail-table tfoot th, .ts-detail-table tfoot td {
+  border-bottom: none; padding-top: 10px;
+  font-weight: 700; color: var(--text-1); font-variant-numeric: tabular-nums;
+}
+.ts-detail-table .td-hours, .ts-detail-table .td-diff { text-align: right; white-space: nowrap; }
+.ts-detail-table tr.row-flag th, .ts-detail-table tr.row-flag td { background: rgba(232,168,56,.07); }
+.td-time { display: block; font-weight: 600; color: var(--text-1); font-variant-numeric: tabular-nums; }
+.td-sub  { display: block; font-size: 10.5px; color: var(--text-3); margin-top: 1px;
+  font-variant-numeric: tabular-nums; }
+.td-flag { font-size: 11.5px; font-weight: 650; color: var(--amber-500); }
+.diff-ok    { font-size: 11.5px; font-weight: 600; color: var(--text-3); }
+.diff-over  { font-weight: 700; color: var(--amber-500); font-variant-numeric: tabular-nums; }
+.diff-under { font-weight: 700; color: var(--green-400); font-variant-numeric: tabular-nums; }
+#ts-detail .ts-hours-input {
+  width: 66px; text-align: right; font-size: 12.5px; font-weight: 600;
+  padding: 4px 6px; border: 1.5px solid var(--border); border-radius: 6px;
+  background: var(--surface-2); color: var(--text-1); font-family: var(--font);
 }
 
 /* Supervisor tick-box on the staff card (phone and desktop) */

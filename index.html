@@ -221,9 +221,14 @@
           </div>
 
           <!-- Staff timesheet list -->
-          <div class="section-label">Staff hours this week</div>
+          <div class="section-label" id="ts-list-label">Staff hours this week</div>
           <div id="ts-staff-list">
             <div class="empty-state">Loading from Square…</div>
+          </div>
+
+          <!-- Desktop only — rostered vs actual for the selected staff member -->
+          <div id="ts-detail" class="dash-desk">
+            <div class="empty-state">Pick someone on the left to see their shifts.</div>
           </div>
 
           <!-- Public holiday alert -->
