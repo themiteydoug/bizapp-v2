@@ -69,17 +69,18 @@ const App = (() => {
       btn.classList.toggle('active', btn.dataset.page === page);
     });
 
-    // On desktop the panels are all on screen already — jump to the one clicked
-    // instead of swapping which page is visible. Staff is the exception: it's
-    // not a panel, so it takes over the whole area as its own page.
+    // On desktop the dashboard is the panel overview; every other tab takes over
+    // the whole content area as its own working page (see the focus-view block
+    // in app.css). The panel modules are already initialised at boot, so
+    // switching is pure CSS — only Staff needs initialising on first open.
     if (isDesktop()) {
-      const staffView = page === 'staff';
-      document.body.classList.toggle('staff-view', staffView);
-      if (staffView) {
-        StaffModule.init();
+      const focus = page !== 'dashboard';
+      document.body.classList.toggle('focus-view', focus);
+      document.querySelectorAll('.page').forEach(p => p.classList.remove('focused'));
+      if (focus) {
+        target?.classList.add('focused');
+        if (page === 'staff') StaffModule.init();
         document.getElementById('page-container')?.scrollTo({ top: 0 });
-      } else {
-        target?.scrollIntoView({ behavior: 'smooth', block: 'start' });
       }
       return;
     }
