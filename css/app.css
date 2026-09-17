@@ -1190,6 +1190,29 @@ select.field-input { appearance: none; background-image: url("data:image/svg+xml
   }
   body.focus-view #staff-list .staff-card { margin-bottom: 0; }
 
+  /* ── Invoices page: list | entry form ─────────────────────────────────
+     The invoice list takes the width; the entry form is pinned to 430px phone
+     width beside it — same rule as the cash rec, data entry stays phone-shaped
+     and review gets the room. Placed by grid area because the DOM has the form
+     first (which is the right order on a phone). */
+  body.focus-view #page-invoices .page-scroll {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 430px;
+    grid-template-areas:
+      "hero      hero"
+      "weeknav   formlabel"
+      "listlabel form"
+      "list      form";
+    gap: 0 20px;
+    align-content: start;
+  }
+  body.focus-view #page-invoices .page-hero        { grid-area: hero; }
+  body.focus-view #page-invoices #invoice-week-nav { grid-area: weeknav; }
+  body.focus-view #page-invoices #inv-list-label   { grid-area: listlabel; }
+  body.focus-view #page-invoices #invoice-list     { grid-area: list; }
+  body.focus-view #page-invoices #inv-form-label   { grid-area: formlabel; }
+  body.focus-view #page-invoices #invoice-form     { grid-area: form; align-self: start; }
+
   /* ── Cash rec page: Daily Rec | Weekly Banking ────────────────────────
      Both panes side by side, each at phone width, each rendering exactly the
      same markup as the phone — nothing inside either one is re-laid-out. The
