@@ -1551,25 +1551,36 @@ select.field-input { appearance: none; background-image: url("data:image/svg+xml
 @media print {
   @page { size: A4 landscape; margin: 9mm; }
 
+  /* The app shell is sized to the viewport (body and #app are both 100dvh).
+     On paper a dvh resolves to the page box, so a shell that is exactly one
+     page tall spills onto a second, blank one — every height has to be
+     released, min-heights included. */
+  html, body.print-roster {
+    height: auto !important; min-height: 0 !important;
+    overflow: visible !important; margin: 0 !important; padding: 0 !important;
+  }
   body.print-roster { background: #fff !important; }
   body.print-roster > *:not(#app) { display: none !important; }
   body.print-roster #app {
     display: block !important; max-width: none !important;
-    margin: 0 !important; padding: 0 !important; height: auto !important;
+    margin: 0 !important; padding: 0 !important;
+    height: auto !important; min-height: 0 !important;
   }
   body.print-roster #app > *:not(#page-container) { display: none !important; }
   body.print-roster #page-container {
     display: block !important; padding: 0 !important; overflow: visible !important;
-    height: auto !important; max-height: none !important;
+    height: auto !important; min-height: 0 !important; max-height: none !important;
   }
   body.print-roster #page-container > *:not(#page-staff) { display: none !important; }
   body.print-roster #page-staff {
     display: block !important; background: none !important; border: none !important;
-    overflow: visible !important; height: auto !important; max-height: none !important;
+    overflow: visible !important;
+    height: auto !important; min-height: 0 !important; max-height: none !important;
   }
   body.print-roster #page-staff .page-scroll {
     display: block !important; overflow: visible !important;
-    height: auto !important; max-height: none !important; padding: 0 !important;
+    height: auto !important; min-height: 0 !important; max-height: none !important;
+    padding: 0 !important;
   }
   body.print-roster #page-staff .page-scroll > *:not(#staff-roster-wrap) { display: none !important; }
   body.print-roster #staff-roster-wrap { display: block !important; }
