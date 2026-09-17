@@ -1157,28 +1157,49 @@ select.field-input { appearance: none; background-image: url("data:image/svg+xml
   #page-timesheets { grid-column: 2;      grid-row: 2; }
   #page-invoices   { grid-column: 1 / -1; grid-row: 3; }
 
-  /* Staff mapping is payroll configuration, not weekly numbers, so it is not a
-     dashboard panel. Clicking Staff in the sidebar swaps the whole area over to
-     it as a full page (App.nav toggles .staff-view on <body>). */
+  /* ── Focus view ───────────────────────────────────────────────────────
+     The dashboard is the panel overview. Clicking any other module in the
+     sidebar hands it the whole content area as its own working page — App.nav
+     puts .focus-view on <body> and .focused on that page — which is where the
+     two-column page layouts below apply. Staff is never a panel (it's payroll
+     configuration, not weekly numbers), so it only ever appears this way. */
   #page-staff { display: none; }
-  body.staff-view #page-dashboard,
-  body.staff-view #page-cash,
-  body.staff-view #page-timesheets,
-  body.staff-view #page-invoices { display: none; }
-  body.staff-view #page-staff {
+
+  body.focus-view .page { display: none; }
+  body.focus-view .page.focused {
     display: flex;
     grid-column: 1 / -1;
     grid-row: 1;
   }
-  body.staff-view #page-staff .page-scroll { max-height: none; }
-  /* With the full width to play with, lay the roster out in columns instead of
-     one tall list of half-empty rows. */
-  body.staff-view #staff-list {
+  body.focus-view .page.focused .page-scroll { max-height: none; }
+
+  /* Staff: roster in columns rather than one tall list of half-empty rows */
+  body.focus-view #staff-list {
     display: grid;
     grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
     gap: 10px;
   }
-  body.staff-view #staff-list .staff-card { margin-bottom: 0; }
+  body.focus-view #staff-list .staff-card { margin-bottom: 0; }
+
+  /* ── Cash rec page: Daily Rec | Weekly Banking ────────────────────────
+     Both panes side by side, each at phone width, each rendering exactly the
+     same markup as the phone — nothing inside either one is re-laid-out. The
+     tabs are redundant once both are on screen at once. */
+  body.focus-view #page-cash #cash-tabs { display: none; }
+  body.focus-view #page-cash .page-scroll {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 18px;
+    align-items: flex-start;
+  }
+  body.focus-view #page-cash .page-hero { flex: 0 0 100%; }
+  body.focus-view #page-cash #cash-daily-section,
+  body.focus-view #page-cash #cash-weekly-section {
+    /* !important beats the inline display the tab switcher sets */
+    display: block !important;
+    flex: 0 0 430px;
+    width: 430px;
+  }
 
   /* One week selector, at the top. The panels below follow it (App.setWeek
      broadcasts to every module on desktop), so their own selectors would just
@@ -1186,6 +1207,11 @@ select.field-input { appearance: none; background-image: url("data:image/svg+xml
   #page-cash .week-selector,
   #page-timesheets .week-selector,
   #page-invoices .week-selector { display: none; }
+
+  /* …but on its own page the dashboard's selector isn't on screen, so the
+     page's own one comes back. It still drives every other panel through
+     App.setWeek, so they stay in step. */
+  body.focus-view .page.focused .week-selector { display: flex; }
 
   /* The dashboard is a KPI strip, not a panel: no card, no clipping. It was
      rendering as a bordered box with overflow:hidden, which sliced the tiles
