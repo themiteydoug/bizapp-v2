@@ -994,6 +994,20 @@ select.field-input { appearance: none; background-image: url("data:image/svg+xml
   text-align: center;
 }
 .denom-input:focus { outline: none; border-color: var(--green-400); }
+
+/* Cash rec number fields drop the browser's spin buttons — the denomination
+   counts already have their own − / + on either side, and on the dollar
+   fields the arrows only ever nudge by a cent. Desktop-only clutter; phones
+   never draw them. Timesheet hour fields keep theirs, where stepping a
+   quarter-hour at a time is the point. */
+#petty-amount::-webkit-outer-spin-button,
+#petty-amount::-webkit-inner-spin-button,
+#wk-recount-input::-webkit-outer-spin-button,
+#wk-recount-input::-webkit-inner-spin-button,
+.denom-input::-webkit-outer-spin-button,
+.denom-input::-webkit-inner-spin-button { -webkit-appearance: none; appearance: none; margin: 0; }
+#petty-amount, #wk-recount-input, .denom-input { -moz-appearance: textfield; appearance: textfield; }
+
 .denom-btn {
   width: 34px;
   height: 38px;
