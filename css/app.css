@@ -1161,7 +1161,11 @@ select.field-input { appearance: none; background-image: url("data:image/svg+xml
   /* The dashboard is the only thing on the front page now — the other modules
      are summarised there (see .sum-card) and open as their own pages. */
   #page-dashboard { grid-column: 1 / -1; grid-row: 1; }
-  #page-cash, #page-invoices, #page-timesheets { display: none; }
+  /* :not(.focused) matters — an ID selector outranks .page.focused, so without
+     it these rules would keep a focused page hidden. */
+  #page-cash:not(.focused),
+  #page-invoices:not(.focused),
+  #page-timesheets:not(.focused) { display: none; }
 
   /* The dashboard isn't a bordered panel, so it needs no inner scrollbar */
   #page-dashboard .page-scroll::-webkit-scrollbar { width: 0; }
@@ -1172,7 +1176,7 @@ select.field-input { appearance: none; background-image: url("data:image/svg+xml
      puts .focus-view on <body> and .focused on that page — which is where the
      two-column page layouts below apply. Staff is never a panel (it's payroll
      configuration, not weekly numbers), so it only ever appears this way. */
-  #page-staff { display: none; }
+  #page-staff:not(.focused) { display: none; }
 
   body.focus-view .page { display: none; }
   body.focus-view .page.focused {
@@ -1332,4 +1336,178 @@ select.field-input { appearance: none; background-image: url("data:image/svg+xml
   .page-hero { padding: 2px 0 12px; }
   .page-title { font-size: 18px; letter-spacing: -0.2px; }
   .page-subtitle { font-size: 12px; }
+
+  /* The roster is the point of the Staff page on a big screen */
+  #staff-roster-wrap { display: block; }
+  body.focus-view #page-staff .page-scroll { display: block; }
+}
+
+/* =============================================
+   WEEKLY ROSTER
+   Styled outside the desktop media query so the print stylesheet —
+   which runs at A4 width, not screen width — gets the same rules.
+   ============================================= */
+
+.roster-bar {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 16px; flex-wrap: wrap; margin-bottom: 14px;
+}
+.roster-bar .week-selector { margin: 0; flex: 0 1 auto; }
+.roster-bar-right { display: flex; align-items: center; gap: 10px; }
+.roster-btn { width: auto; padding: 9px 16px; font-size: 12.5px; position: relative; }
+.roster-badge {
+  display: inline-flex; align-items: center; justify-content: center;
+  min-width: 18px; height: 18px; margin-left: 7px; padding: 0 5px;
+  border-radius: 9px; background: var(--amber-500); color: #24160a;
+  font-size: 11px; font-weight: 750;
+}
+.roster-status { font-size: 11.5px; font-weight: 650; color: var(--text-3); }
+.roster-status.ok   { color: var(--green-400); }
+.roster-status.warn { color: var(--amber-500); }
+
+.roster-sheet {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--r-lg);
+  padding: 16px 18px 14px;
+}
+.roster-print-head { display: none; }
+
+.roster-table {
+  width: 100%;
+  border-collapse: collapse;
+  table-layout: fixed;
+  font-size: 12px;
+}
+.roster-table th, .roster-table td {
+  border: 1px solid var(--border);
+  padding: 3px;
+  vertical-align: middle;
+  text-align: center;
+}
+.roster-table thead th {
+  padding: 6px 3px;
+  font-weight: 700; color: var(--text-2);
+  background: var(--surface-2, rgba(255,255,255,.03));
+}
+.rc-dow  { display: block; font-size: 12px; }
+.rc-date { display: block; font-size: 10.5px; font-weight: 550; color: var(--text-3); }
+.roster-table .rc-name {
+  width: 15%; text-align: left; padding-left: 9px;
+  font-weight: 650; color: var(--text-1); white-space: nowrap;
+  overflow: hidden; text-overflow: ellipsis;
+}
+.roster-table .rc-total {
+  width: 8%; font-weight: 700; color: var(--text-1);
+  font-variant-numeric: tabular-nums;
+}
+.roster-table tfoot td, .roster-table tfoot th {
+  font-weight: 700; color: var(--text-2);
+  font-variant-numeric: tabular-nums;
+}
+
+/* Every box is the same depth so the rows line up down the page */
+.shift-box {
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: 1px; min-height: 34px; padding: 5px 4px;
+  border: 1px solid; border-radius: 5px;
+  font-variant-numeric: tabular-nums;
+}
+.shift-box + .shift-box { margin-top: 3px; }
+.sh-time { font-size: 11.5px; font-weight: 700; line-height: 1.15; }
+.sh-hrs  { font-size: 10px;   font-weight: 600; opacity: .75; line-height: 1.1; }
+
+/* Dark text on a light fill — reads cleanly on paper */
+.sh-blue   { background: #D6E8FA; border-color: #9CC4E8; color: #17456E; }
+.sh-orange { background: #FAE0C4; border-color: #EDBB82; color: #74430F; }
+.sh-pink   { background: #F9D5E2; border-color: #EDA3BF; color: #78234E; }
+.sh-yellow { background: #FAEFBD; border-color: #E5CF71; color: #675103; }
+.sh-green  { background: #D2EED6; border-color: #90D19E; color: #1B572E; }
+
+.roster-legend {
+  display: flex; flex-wrap: wrap; gap: 6px 18px;
+  margin-top: 12px; font-size: 11px; color: var(--text-3);
+}
+.lg-item { display: inline-flex; align-items: center; gap: 6px; }
+.lg-chip {
+  width: 15px; height: 11px; border-radius: 3px; border: 1px solid; display: inline-block;
+}
+
+/* Supervisor tick-box on the staff card (phone and desktop) */
+.sup-toggle {
+  display: flex; align-items: flex-start; gap: 10px;
+  padding: 11px 12px; margin-bottom: 4px;
+  border: 1px solid var(--border); border-radius: var(--r-md, 10px);
+  cursor: pointer;
+}
+.sup-toggle input { width: 17px; height: 17px; margin-top: 1px; accent-color: var(--green-500); flex: none; }
+.sup-toggle strong { display: block; font-size: 13px; font-weight: 600; color: var(--text-1); }
+.sup-toggle em { display: block; font-size: 11.5px; font-style: normal; color: var(--text-3); margin-top: 3px; line-height: 1.4; }
+
+/* =============================================
+   PRINT — A4 landscape roster, one page
+   Everything but the roster sheet is taken out of the flow, and the
+   sheet is re-coloured for paper (the app's dark theme would print
+   as a black rectangle).
+   ============================================= */
+@media print {
+  @page { size: A4 landscape; margin: 9mm; }
+
+  body.print-roster { background: #fff !important; }
+  body.print-roster > *:not(#app) { display: none !important; }
+  body.print-roster #app {
+    display: block !important; max-width: none !important;
+    margin: 0 !important; padding: 0 !important; height: auto !important;
+  }
+  body.print-roster #app > *:not(#page-container) { display: none !important; }
+  body.print-roster #page-container {
+    display: block !important; padding: 0 !important; overflow: visible !important;
+    height: auto !important; max-height: none !important;
+  }
+  body.print-roster #page-container > *:not(#page-staff) { display: none !important; }
+  body.print-roster #page-staff {
+    display: block !important; background: none !important; border: none !important;
+    overflow: visible !important; height: auto !important; max-height: none !important;
+  }
+  body.print-roster #page-staff .page-scroll {
+    display: block !important; overflow: visible !important;
+    height: auto !important; max-height: none !important; padding: 0 !important;
+  }
+  body.print-roster #page-staff .page-scroll > *:not(#staff-roster-wrap) { display: none !important; }
+  body.print-roster #staff-roster-wrap { display: block !important; }
+  body.print-roster .roster-bar { display: none !important; }
+
+  body.print-roster .roster-sheet {
+    background: #fff !important; border: none !important;
+    border-radius: 0 !important; padding: 0 !important;
+  }
+  body.print-roster .roster-print-head {
+    display: flex !important; align-items: baseline; justify-content: space-between;
+    margin-bottom: 7px; color: #111;
+  }
+  body.print-roster .roster-print-title { font-size: 13pt; font-weight: 700; }
+  body.print-roster .roster-print-week  { font-size: 10pt; font-weight: 600; }
+
+  body.print-roster .roster-table { font-size: 7.5pt; }
+  body.print-roster .roster-table th,
+  body.print-roster .roster-table td { border-color: #b9b9b9 !important; padding: 2px !important; }
+  body.print-roster .roster-table thead th { background: #f1f1f1 !important; color: #111 !important; }
+  body.print-roster .roster-table .rc-name,
+  body.print-roster .roster-table .rc-total,
+  body.print-roster .roster-table tfoot td,
+  body.print-roster .roster-table tfoot th { color: #111 !important; }
+  body.print-roster .rc-date { color: #555 !important; }
+
+  body.print-roster .shift-box { min-height: 12.5mm; padding: 1.6mm 1mm !important; }
+  body.print-roster .sh-time { font-size: 7.5pt; }
+  body.print-roster .sh-hrs  { font-size: 6.5pt; }
+  body.print-roster .roster-legend { margin-top: 6px; color: #444 !important; font-size: 7pt; }
+  body.print-roster tr { break-inside: avoid; page-break-inside: avoid; }
+
+  /* Keep the shift colours — they are what makes the roster readable */
+  body.print-roster .shift-box, body.print-roster .lg-chip,
+  body.print-roster .roster-table thead th {
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
 }

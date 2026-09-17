@@ -410,8 +410,55 @@ const SquareAPI = (() => {
     return { cash, card, refunds, payoutCount: payouts.length, entryCount: allEntries.length };
   }
 
+  // ── Roster (scheduled shifts) ─────────────────
+  // Published rosters only. Drafts are counted, not returned, so the roster
+  // view can say "drafted, not published yet" instead of showing a blank week.
+  // Brisbane has no daylight saving, so the +10:00 offset is safe year-round.
+  async function getRosterWeek(weekStart, weekEnd) {
+    if (CONFIG.FEATURES.DEMO_MODE) { await delay(300); return { shifts: [], draftCount: 0 }; }
+
+    const startAt = `${weekStart}T00:00:00+10:00`;
+    const endAt   = `${weekEnd}T23:59:59+10:00`;
+
+    const shifts = [];
+    let draftCount = 0, cursor = null, pages = 0;
+
+    do {
+      // location_ids is injected server-side by square-proxy.
+      const body = {
+        query: { filter: { start: { start_at: startAt, end_at: endAt } } },
+        limit: 50,   // kept small — some labor endpoints reject larger page sizes
+      };
+      if (cursor) body.cursor = cursor;
+
+      const data = await proxyFetch('/labor/scheduled-shifts/search', 'POST', body);
+
+      (data.scheduled_shifts || []).forEach(s => {
+        const d = s.published_shift_details;
+        if (!d) {
+          if (s.draft_shift_details && !s.draft_shift_details.is_deleted) draftCount++;
+          return;
+        }
+        if (d.is_deleted || !d.start_at || !d.end_at) return;
+        shifts.push({
+          id:           s.id,
+          teamMemberId: d.team_member_id || null,
+          jobId:        d.job_id || null,
+          startAt:      d.start_at,
+          endAt:        d.end_at,
+          notes:        d.notes || '',
+        });
+      });
+
+      cursor = data.cursor || null;
+    } while (cursor && ++pages < 10);
+
+    shifts.sort((a, b) => a.startAt.localeCompare(b.startAt));
+    return { shifts, draftCount };
+  }
+
   function delay(ms) { return new Promise(r => setTimeout(r, ms)); }
 
-  return { getTakings, getWeekTimesheets, getWeeklyTotals, getWeeklyPayouts, getStaffList, getDrawerReport, getWeeklyDrawerByDay };
+  return { getTakings, getWeekTimesheets, getWeeklyTotals, getWeeklyPayouts, getStaffList, getDrawerReport, getWeeklyDrawerByDay, getRosterWeek };
 
 })();

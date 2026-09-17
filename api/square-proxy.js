@@ -20,6 +20,7 @@ const ALLOWED_ENDPOINTS = [
   '/refunds',
   '/labor/shifts',
   '/labor/timecards',
+  '/labor/scheduled-shifts',   // rostered (published) shifts for the roster view
   '/employees',
   '/team-members',
   '/cash-drawers/shifts',
@@ -101,7 +102,7 @@ module.exports = async (req, res) => {
     if (endpoint === '/orders/search') {
       if (!parsed.location_ids?.length) parsed.location_ids = [locationId];
     }
-    if (endpoint === '/labor/timecards/search') {
+    if (endpoint === '/labor/timecards/search' || endpoint === '/labor/scheduled-shifts/search') {
       const filter = parsed.query?.filter;
       if (filter && (!filter.location_ids?.length)) filter.location_ids = [locationId];
     }
