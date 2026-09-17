@@ -24,8 +24,8 @@ const CONFIG = {
   // major changes, +0.1 for minor. BUILD = the running build counter, kept in
   // step with the service-worker cache version (sw.js) so you can confirm a
   // device picked up the latest update.
-  VERSION: '6.1',
-  BUILD:   62,
+  VERSION: '6.2',
+  BUILD:   63,
 
   // ── API endpoints (Vercel serverless functions) ──
   API: {
