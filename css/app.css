@@ -1549,7 +1549,11 @@ select.field-input { appearance: none; background-image: url("data:image/svg+xml
    as a black rectangle).
    ============================================= */
 @media print {
-  @page { size: A4 landscape; margin: 9mm; }
+  /* margin: 0 is what suppresses the browser's own header and footer — the
+     date/time line and the bizapp-v2 URL. With no page margin to print them
+     into, Chrome and Safari drop them. The page edge is then held by padding
+     on the sheet itself (below) instead. */
+  @page { size: A4 landscape; margin: 0; }
 
   /* The app shell is sized to the viewport (body and #app are both 100dvh).
      On paper a dvh resolves to the page box, so a shell that is exactly one
@@ -1588,7 +1592,8 @@ select.field-input { appearance: none; background-image: url("data:image/svg+xml
 
   body.print-roster .roster-sheet {
     background: #fff !important; border: none !important;
-    border-radius: 0 !important; padding: 0 !important;
+    border-radius: 0 !important;
+    padding: 9mm 10mm !important;   /* stands in for the page margin */
   }
   body.print-roster .roster-print-head {
     display: flex !important; align-items: baseline; justify-content: space-between;
