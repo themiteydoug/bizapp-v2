@@ -118,32 +118,47 @@
             </div>
           </div>
 
-          <!-- Desktop only. Hidden on the phone (.dash-desk is display:none until
-               the desktop breakpoint), so the phone dashboard is unchanged. -->
-          <div class="dash-desk" id="dash-summaries">
-            <button class="sum-card" data-open="cash">
-              <span class="sum-label">Cash rec.</span>
-              <span class="sum-value" id="sum-cash">$—</span>
-              <span class="sum-sub" id="sum-cash-sub">—</span>
-            </button>
-            <button class="sum-card" data-open="invoices">
-              <span class="sum-label">Invoices</span>
-              <span class="sum-value" id="sum-inv">$—</span>
-              <span class="sum-sub" id="sum-inv-sub">—</span>
-            </button>
-            <button class="sum-card" data-open="timesheets">
-              <span class="sum-label">Timesheets</span>
-              <span class="sum-value" id="sum-ts">—</span>
-              <span class="sum-sub" id="sum-ts-sub">—</span>
-            </button>
-          </div>
+          <!-- Desktop only. The whole block is hidden on the phone (.dash-desk is
+               display:none until the desktop breakpoint), so nothing inside it —
+               manager-only panels included — can leak into the phone view. -->
+          <div class="dash-desk" id="dash-panels">
 
-          <div class="dash-desk manager-only" id="dash-trend-wrap">
-            <div class="trend-head">
-              <span>Net profit · recent weeks</span>
-              <span class="trend-hint" id="trend-hint"></span>
-            </div>
-            <div class="trend-bars" id="trend-bars"></div>
+            <section class="dpanel" id="dp-cash">
+              <header class="dpanel-head" data-open="cash" role="button" tabindex="0">
+                <h2>Cash reconciliation</h2>
+                <span class="dpanel-note">Counted vs Square drawer</span>
+              </header>
+              <div class="dpanel-body" id="dash-cash-rows"><div class="dpanel-empty">Loading…</div></div>
+              <div class="dpanel-foot" id="dash-cash-foot"></div>
+            </section>
+
+            <section class="dpanel manager-only" id="dp-trend">
+              <header class="dpanel-head">
+                <h2>Net profit · last 6 weeks</h2>
+                <span class="dpanel-note" id="trend-hint">weekly</span>
+              </header>
+              <div class="trend-bars" id="trend-bars"></div>
+              <div class="dpanel-foot" id="dash-trend-stats"></div>
+            </section>
+
+            <section class="dpanel" id="dp-inv">
+              <header class="dpanel-head" data-open="invoices" role="button" tabindex="0">
+                <h2>Recent invoices</h2>
+                <span class="dpanel-note">this week · COGS</span>
+              </header>
+              <div class="dpanel-body" id="dash-inv-rows"></div>
+              <div class="dpanel-foot" id="dash-inv-foot"></div>
+            </section>
+
+            <section class="dpanel" id="dp-ts">
+              <header class="dpanel-head" data-open="timesheets" role="button" tabindex="0">
+                <h2>Timesheets</h2>
+                <span class="dpanel-note">Square hours · this week</span>
+              </header>
+              <div class="dpanel-body" id="dash-ts-rows"></div>
+              <div class="dpanel-foot" id="dash-ts-foot"></div>
+            </section>
+
           </div>
 
         </div>

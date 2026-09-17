@@ -131,6 +131,15 @@ const Dashboard = (() => {
 
       // Each source resolves independently — a failure in one (e.g. a Square
       // labour hiccup) must not blank the others.
+      // The drawer-by-day call is desktop-only: it feeds the cash panel, which
+      // the phone never renders, so the phone makes no extra request.
+      const drawerPromise = isDesktop()
+        ? SquareAPI.getWeeklyDrawerByDay(weekStart, weekEnd).catch(e => {
+            console.warn('Drawer-by-day error:', e.message);
+            return null;
+          })
+        : Promise.resolve(null);
+
       const [weekTotals, rawTimesheets, overhead] = await Promise.all([
         SquareAPI.getWeeklyTotals(weekStart, weekEnd).catch(e => {
           console.warn('Weekly totals error:', e.message);
@@ -161,6 +170,12 @@ const Dashboard = (() => {
 
       renderMetrics(weekTotals, timesheets, overhead, weekStart, weekEnd);
       lastRenderedWeek = weekStart;
+
+      // The cash panel paints once the drawer call lands — it must never hold
+      // up the tiles.
+      drawerPromise.then(drawer => {
+        if (weekStart === currentWeekStart) renderCashPanel(drawer, weekStart, weekEnd);
+      });
     } catch (e) {
       if (weekStart !== currentWeekStart) return;
       console.error('Dashboard refresh error:', e);
@@ -229,41 +244,191 @@ const Dashboard = (() => {
     set('dash-net-pct', netSales > 0 ? pct(netProfit) : '— of net sales');
     alert('dash-net-tile', netSales > 0 && netProfit < 0);
 
-    // Desktop extras — no-ops on the phone, where these elements are hidden.
-    renderSummaries(weekStart, weekEnd, timesheets, weekInvoices, cogs);
+    // Desktop panels — skipped entirely on the phone, where they aren't rendered.
+    if (isDesktop()) {
+      renderInvoicePanel(weekInvoices, cogs);
+      renderTimesheetPanel(timesheets);
+    }
     if (netSales > 0) recordWeek(weekStart, netProfit);
-    renderTrend(weekStart);
+    if (isDesktop()) { renderTrend(weekStart); backfillHistory(weekStart); }
   }
 
-  // ── Desktop summary cards ─────────────────────
-  // Deliberately built from data already on hand — the timesheets and invoices
-  // the tiles just used, plus local cash records — so the front page costs no
-  // extra API calls.
-  function renderSummaries(weekStart, weekEnd, timesheets, weekInvoices, cogs) {
-    const set = (id, v) => { const el = document.getElementById(id); if (el) el.textContent = v; };
-    const money = n => '$' + Math.round(n || 0).toLocaleString();
+  // ═══════════════════════════════════════════════════════════════
+  //  DESKTOP PANELS
+  //  The front page shows the week's actual working data, not a set of
+  //  headline figures. Everything but the cash drawer comes from data
+  //  the tiles already fetched or from local storage, so the panels add
+  //  exactly one API call to a dashboard load.
+  // ═══════════════════════════════════════════════════════════════
 
-    // Cash rec — how much is counted, and how much of the week is done.
+  const deskMQ = window.matchMedia('(min-width: 1080px)');
+  function isDesktop() { return deskMQ.matches; }
+
+  const money  = n => (n < 0 ? '−$' : '$') + Math.abs(n || 0).toFixed(2);
+  const money0 = n => (n < 0 ? '−$' : '$') + Math.abs(Math.round(n || 0)).toLocaleString();
+  const esc    = s => String(s == null ? '' : s).replace(/[&<>"]/g, c => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;' }[c]));
+
+  // ── Cash reconciliation ───────────────────────
+  // One row per day: who counted it, what Square's drawer expected, the
+  // variance, and what went to the bank. A day nobody counted offers Square's
+  // own figure, the same as the cash rec page does.
+  function renderCashPanel(drawer, weekStart, weekEnd) {
+    if (!isDesktop()) return;
+    const rows = document.getElementById('dash-cash-rows');
+    const foot = document.getElementById('dash-cash-foot');
+    if (!rows || !foot) return;
+
     const recs = Store.getCashRecs().filter(r => r.type === 'daily' && r.date >= weekStart && r.date <= weekEnd);
-    const banked = recs.reduce((s, r) => s + (r.actualCash ?? r.actual ?? 0), 0);
-    set('sum-cash', recs.length ? money(banked) : '—');
-    set('sum-cash-sub', `${recs.length} of 7 days counted`);
+    const byDate = Object.fromEntries(recs.map(r => [r.date, r]));
+    const drawerMap = drawer || {};
+    const today = new Date().toLocaleDateString('sv-SE', { timeZone: 'Australia/Brisbane' });
 
-    // Invoices — this week's bills and what they add to COGS.
-    set('sum-inv', weekInvoices.length ? money(cogs) : '—');
-    set('sum-inv-sub', `${weekInvoices.length} bill${weekInvoices.length === 1 ? '' : 's'} this week`);
+    const days = Array.from({ length: 7 }, (_, i) => {
+      const d = new Date(weekStart + 'T12:00:00');
+      d.setDate(d.getDate() + i);
+      return d.toISOString().slice(0, 10);
+    });
 
-    // Timesheets — hours and cost, straight off the staff-cost tile's data.
-    const hours = timesheets.reduce((s, e) => s + (e.totalHours || 0), 0);
-    const cost  = timesheets.reduce((s, e) => s + (e.estimatedCost || 0), 0);
-    set('sum-ts', hours ? hours.toFixed(1) + ' h' : '—');
-    set('sum-ts-sub', hours ? `${money(cost)} · ${timesheets.length} staff` : 'no hours yet');
+    let counted = 0, drawerTotal = 0;
+
+    const html = days.map(date => {
+      const label = new Date(date + 'T12:00:00').toLocaleDateString('en-AU', { weekday: 'short', day: 'numeric', month: 'short' });
+      const sq  = drawerMap[date] ? drawerMap[date].toBank : null;
+      if (sq != null) drawerTotal += sq;
+      const rec = byDate[date];
+
+      if (rec) {
+        const amt = rec.actualCash ?? rec.actual ?? 0;
+        counted += amt;
+        const who = rec.source === 'square_estimate'
+          ? 'Square drawer'
+          : (rec.countedBy || '').trim().split(/\s+/)[0] || 'counted';
+        const v = (sq != null && rec.source !== 'square_estimate') ? amt - sq : null;
+        return `<div class="drow">
+          <span class="drow-day">${label} <em>· ${esc(who)}</em></span>
+          <span class="drow-right">
+            ${sq != null ? `<span class="drow-sq">Sq ${money(sq)}</span>` : ''}
+            ${v != null ? `<span class="drow-var ${varClass(v)}">${varText(v)}</span>` : ''}
+            <span class="drow-amt">${money(amt)}</span>
+          </span>
+        </div>`;
+      }
+
+      // Not counted. Offer Square's figure for a day that has already finished.
+      const canFill = sq != null && date < today;
+      return `<div class="drow">
+        <span class="drow-day">${label} <em>· not counted</em></span>
+        <span class="drow-right">
+          ${sq != null ? `<span class="drow-sq">Sq ${money(sq)}</span>` : ''}
+          ${canFill
+            ? `<button class="drow-fill" data-fill-date="${date}" data-fill-amt="${sq.toFixed(2)}">Use Square ${money(sq)}</button>`
+            : '<span class="drow-amt muted">—</span>'}
+        </span>
+      </div>`;
+    }).join('');
+
+    rows.innerHTML = html;
+    rows.querySelectorAll('button[data-fill-date]').forEach(b => b.addEventListener('click', () => {
+      try {
+        CashModule.fillMissedFromSquare(b.dataset.fillDate, parseFloat(b.dataset.fillAmt));
+        renderCashPanel(drawer, weekStart, weekEnd);
+      } catch (e) { App.toast('Could not save that day: ' + e.message, 'error'); }
+    }));
+
+    // Petty cash taken from the banking never reaches Square, so it has to be
+    // added back before the week can tie out.
+    const petty = Store.getInvoices()
+      .filter(i => i.source === 'petty_cash' && i.date >= weekStart && i.date <= weekEnd)
+      .filter(i => (i.pettySource || 'till') === 'banking')
+      .reduce((s, i) => s + (i.totalIncGst || i.subtotal || 0), 0);
+
+    const variance = (counted + petty) - drawerTotal;
+    const balanced = Math.abs(variance) < 0.05;
+
+    foot.innerHTML = `
+      ${petty > 0 ? `<div class="dfoot-row">
+        <span>Plus petty cash (from banking)</span><span class="pos">+${money(petty)}</span>
+      </div>` : ''}
+      <div class="dfoot-row">
+        <span>Square cash drawer (7-day sum)</span><span>${drawerTotal ? money(drawerTotal) : '—'}</span>
+      </div>
+      <div class="dfoot-row total">
+        <span>Total vs Square</span>
+        <span class="${balanced ? 'ok' : varClass(variance)}">${
+          drawerTotal ? `${varText(variance)}${balanced ? ' · Balanced ✓' : ''}` : money(counted + petty)}</span>
+      </div>`;
+  }
+
+  function varClass(v) {
+    const a = Math.abs(v);
+    if (a < 0.05) return 'ok';
+    if (a <= 5)   return 'near';
+    return 'off';
+  }
+  function varText(v) {
+    if (Math.abs(v) < 0.05) return '+$0.00';
+    return (v > 0 ? '+' : '−') + '$' + Math.abs(v).toFixed(2);
+  }
+
+  // ── Recent invoices ───────────────────────────
+  function renderInvoicePanel(weekInvoices, cogs) {
+    const rows = document.getElementById('dash-inv-rows');
+    const foot = document.getElementById('dash-inv-foot');
+    if (!rows || !foot) return;
+
+    const list = [...weekInvoices].sort((a, b) => (b.date || '').localeCompare(a.date || ''));
+    rows.innerHTML = list.length
+      ? list.map(inv => {
+          const d = new Date(inv.date + 'T12:00:00').toLocaleDateString('en-AU', { day: 'numeric', month: 'short' });
+          const petty = inv.source === 'petty_cash';
+          // Same three states the invoices list uses: synced / local / pending.
+          const badge = inv.status === 'synced' ? '<span class="dbadge ok">In Xero</span>'
+            : inv.status === 'local' ? '<span class="dbadge local">Saved</span>'
+            : '<span class="dbadge">Pending</span>';
+          const ref = petty ? `from ${esc(inv.pettySource || 'till')}` : esc(inv.invoiceNo || '—');
+          return `<div class="drow">
+            <span class="drow-day">${esc(inv.supplier || 'Unnamed')}<em>${d} · ${ref}</em></span>
+            <span class="drow-right">${badge}<span class="drow-amt">${money(inv.totalIncGst ?? inv.subtotal ?? 0)}</span></span>
+          </div>`;
+        }).join('')
+      : '<div class="dpanel-empty">No invoices entered for this week yet.</div>';
+
+    foot.innerHTML = `<div class="dfoot-row total"><span>Total COGS</span><span>${money(cogs)}</span></div>`;
+  }
+
+  // ── Timesheets ────────────────────────────────
+  function renderTimesheetPanel(timesheets) {
+    const rows = document.getElementById('dash-ts-rows');
+    const foot = document.getElementById('dash-ts-foot');
+    if (!rows || !foot) return;
+
+    const list = [...timesheets].sort((a, b) => (b.totalHours || 0) - (a.totalHours || 0));
+    rows.innerHTML = list.length
+      ? list.map(t => {
+          const rate = t.hourlyRate ? `$${t.hourlyRate.toFixed(2)}/h` : '';
+          const type = t.salaried ? 'Salaried' : 'Casual';
+          return `<div class="drow">
+            <span class="drow-day">${esc(t.name)}<em>${type}${rate ? ' · ' + rate : ''}</em></span>
+            <span class="drow-right">
+              <span class="drow-sq">${(t.totalHours || 0).toFixed(1)} h</span>
+              <span class="drow-amt">${money0(t.estimatedCost || 0)}</span>
+            </span>
+          </div>`;
+        }).join('')
+      : '<div class="dpanel-empty">No hours recorded for this week.</div>';
+
+    const hours = timesheets.reduce((s, t) => s + (t.totalHours || 0), 0);
+    const cost  = timesheets.reduce((s, t) => s + (t.estimatedCost || 0), 0);
+    foot.innerHTML = `
+      <div class="dfoot-row"><span>Total hours</span><span>${hours.toFixed(1)} h</span></div>
+      <div class="dfoot-row total"><span>Wage cost</span><span>${money0(cost)}</span></div>`;
   }
 
   // ── Net profit trend ──────────────────────────
-  // Each week's net profit is remembered as it's viewed, and the chart draws the
-  // last few. That keeps it free — no back-fetching six weeks of Square and Xero
-  // every time the dashboard loads.
+  // Every week viewed is remembered, and any of the last six that has never been
+  // seen is fetched once, quietly, after the page has painted. A closed week's
+  // figure never changes, so it is computed once and read from storage forever
+  // after — the chart costs nothing on later loads.
   const HIST_KEY = 'bizops_week_history';
 
   function readHistory() {
@@ -281,35 +446,120 @@ const Dashboard = (() => {
     } catch {}
   }
 
+  // The six weeks ending with the one on screen — the window the chart draws,
+  // and the window the backfill fills.
+  function trendWindow(currentWeek) {
+    const out = [];
+    for (let i = 5; i >= 0; i--) {
+      const d = new Date(currentWeek + 'T12:00:00');
+      d.setDate(d.getDate() - i * 7);
+      out.push(d.toISOString().slice(0, 10));
+    }
+    return out;
+  }
+
   function renderTrend(currentWeek) {
     const el = document.getElementById('trend-bars');
     if (!el) return;
     const h = readHistory();
-    const weeks = Object.keys(h).sort().slice(-6);
-    const hint = document.getElementById('trend-hint');
+    const window6 = trendWindow(currentWeek);
+    const weeks = window6.filter(w => h[w] != null);
+    const hint  = document.getElementById('trend-hint');
+    const stats = document.getElementById('dash-trend-stats');
 
-    if (weeks.length < 2) {
-      el.innerHTML = '<div class="trend-empty">Browse a few weeks and the trend builds here.</div>';
-      if (hint) hint.textContent = '';
+    if (!weeks.length) {
+      el.innerHTML = '<div class="trend-empty">Working out the last six weeks…</div>';
+      if (hint)  hint.textContent = '';
+      if (stats) stats.innerHTML = '';
       return;
     }
+
     const vals = weeks.map(w => h[w]);
     const peak = Math.max(...vals.map(Math.abs), 1);
-    if (hint) hint.textContent = `last ${weeks.length} weeks viewed`;
+    if (hint) hint.textContent = weeks.length < 6 ? `${weeks.length} of 6 weeks` : 'weekly';
 
     el.innerHTML = weeks.map(w => {
       const v = h[w];
       const pctH = Math.max(3, Math.round(Math.abs(v) / peak * 100));
-      const d = new Date(w + 'T12:00:00');
-      const cap = d.toLocaleDateString('en-AU', { day: 'numeric', month: 'short' });
+      const cap = new Date(w + 'T12:00:00').toLocaleDateString('en-AU', { day: 'numeric', month: 'short' });
       const cls = (v < 0 ? ' neg' : '') + (w === currentWeek ? ' now' : '');
-      const fig = (v < 0 ? '-$' : '$') + Math.abs(Math.round(v / 100) / 10).toFixed(1) + 'k';
+      const fig = (v < 0 ? '−$' : '$') + Math.abs(Math.round(v / 100) / 10).toFixed(1) + 'k';
       return `<div class="trend-col${cls}">
         <div class="fig">${fig}</div>
         <div class="bar" style="height:${pctH}%"></div>
         <div class="cap">${cap}</div>
       </div>`;
     }).join('');
+
+    if (!stats) return;
+    const best = Math.max(...vals);
+    const avg  = vals.reduce((a, b) => a + b, 0) / vals.length;
+    const idx  = window6.indexOf(currentWeek);
+    const prev = idx > 0 ? h[window6[idx - 1]] : null;
+    const now  = h[currentWeek];
+
+    let trend = '<span class="muted">—</span>';
+    if (prev != null && now != null && prev !== 0) {
+      const chg = (now - prev) / Math.abs(prev) * 100;
+      trend = `<span class="${chg >= 0 ? 'pos' : 'off'}">${chg >= 0 ? '▲ +' : '▼ '}${Math.round(chg)}%</span>`;
+    }
+
+    stats.innerHTML = `
+      <div class="dfoot-row"><span>Best week</span><span>${money0(best)}</span></div>
+      <div class="dfoot-row"><span>${weeks.length}-week average</span><span>${money0(avg)}</span></div>
+      <div class="dfoot-row total"><span>Trend vs prior week</span><span>${trend}</span></div>`;
+  }
+
+  // ── History backfill ──────────────────────────
+  // Fills in any of the six weeks on the chart that have never been viewed, one
+  // at a time in the background. Each week is attempted once per session, so a
+  // week with no trading (or a failed fetch) can't put the app in a loop.
+  let backfilling = false;
+  const attempted = new Set();
+
+  function backfillHistory(currentWeek) {
+    if (backfilling || !Auth.isManager()) return;
+    const h = readHistory();
+    const missing = trendWindow(currentWeek)
+      .filter(w => w < currentWeek && h[w] == null && !attempted.has(w));
+    if (!missing.length) return;
+
+    backfilling = true;
+    (async () => {
+      for (const w of missing) {
+        attempted.add(w);
+        try {
+          await fetchWeekProfit(w);
+          renderTrend(currentWeekStart);
+        } catch (e) {
+          console.warn('[trend] backfill', w, e.message);
+        }
+        // Spread the requests out — this is background work behind a page the
+        // user is already reading.
+        await new Promise(r => setTimeout(r, 1500));
+      }
+      backfilling = false;
+    })();
+  }
+
+  async function fetchWeekProfit(weekStart) {
+    const weekEnd = Holidays.getWeekEnd(weekStart);
+    const [totals, rawTs, overhead] = await Promise.all([
+      SquareAPI.getWeeklyTotals(weekStart, weekEnd),
+      SquareAPI.getWeekTimesheets(weekStart).catch(() => []),
+      XeroAPI.isConnected() ? XeroAPI.getOverheadAverage(weekStart).catch(() => null) : Promise.resolve(null),
+    ]);
+    const netSales = (totals.total || 0) - (totals.gst || 0);
+    if (netSales <= 0) return;   // closed or no data — leave the week off the chart
+
+    let ts = rawTs;
+    try { ts = await XeroAPI.applyAwardRates(rawTs, weekStart); } catch {}
+
+    const staffCost = ts.reduce((s, e) => s + (e.estimatedCost || 0), 0);
+    const cogs = Store.getInvoices()
+      .filter(i => i.date >= weekStart && i.date <= weekEnd)
+      .reduce((s, i) => s + (i.subtotal || 0), 0);
+    recordWeek(weekStart, netSales - staffCost - cogs - (overhead?.weeklyAverage || 0));
   }
 
   function updateSyncTime() {

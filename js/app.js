@@ -397,9 +397,14 @@ const App = (() => {
   // ── Bottom nav ────────────────────────────────
 
   // Dashboard summary cards open the module they summarise.
+  // A dashboard panel's header opens the full page for that module.
   function bindSummaryCards() {
-    document.querySelectorAll('.sum-card[data-open]').forEach(btn =>
-      btn.addEventListener('click', () => nav(btn.dataset.open)));
+    document.querySelectorAll('[data-open]').forEach(el => {
+      el.addEventListener('click', () => nav(el.dataset.open));
+      el.addEventListener('keydown', e => {
+        if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); nav(el.dataset.open); }
+      });
+    });
   }
 
   function bindNav() {

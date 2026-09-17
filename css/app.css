@@ -1173,7 +1173,7 @@ select.field-input { appearance: none; background-image: url("data:image/svg+xml
      dashboard, invoices, cash, timesheets, staff, so relying on auto-placement
      stranded Invoices on a row of its own with dead space beside it. */
   /* The dashboard is the only thing on the front page now — the other modules
-     are summarised there (see .sum-card) and open as their own pages. */
+     shown there as panels (see .dpanel) and open as their own pages. */
   #page-dashboard { grid-column: 1 / -1; grid-row: 1; }
   /* :not(.focused) matters — an ID selector outranks .page.focused, so without
      it these rules would keep a focused page hidden. */
@@ -1299,50 +1299,92 @@ select.field-input { appearance: none; background-image: url("data:image/svg+xml
   }
   #page-dashboard .hero-metrics.manager-only { flex: 1 1 130px; }
 
-  /* ── Summary cards ────────────────────────────────────────────────
-     Each one is a button that opens the full page for that module. */
-  #dash-summaries {
+  /* ── Dashboard panels ─────────────────────────────────────────────
+     The front page shows the week's working data, not just headline
+     figures: the cash week day by day, this week's bills, who worked, and
+     the profit trend. Each panel's header opens that module's full page. */
+  #dash-panels {
     display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
-    gap: 14px;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 16px;
     width: 100%;
     margin-top: 4px;
   }
-  .sum-card {
+  .dpanel {
     display: flex;
     flex-direction: column;
-    gap: 3px;
-    text-align: left;
-    background: var(--surface);
-    border: 1px solid var(--border);
-    border-radius: var(--r-lg);
-    padding: 14px 16px;
-    cursor: pointer;
-    font-family: var(--font);
-    transition: border-color .15s, transform .15s;
-  }
-  .sum-card:hover { border-color: var(--green-400); transform: translateY(-1px); }
-  .sum-card:focus-visible { outline: 2px solid var(--green-500); outline-offset: 2px; }
-  .sum-label { font-size: 11.5px; font-weight: 600; color: var(--text-3); }
-  .sum-value { font-size: 23px; font-weight: 750; color: var(--text-1); letter-spacing: -.02em;
-    font-variant-numeric: tabular-nums; }
-  .sum-sub { font-size: 11.5px; font-weight: 550; color: var(--text-3); font-variant-numeric: tabular-nums; }
-
-  /* ── Net profit trend ─────────────────────────────────────────────
-     Built from weeks already loaded (see Dashboard history), so it costs no
-     extra API calls — it fills in as weeks are viewed. */
-  #dash-trend-wrap {
-    display: block;
-    width: 100%;
     background: var(--surface);
     border: 1px solid var(--border);
     border-radius: var(--r-lg);
     padding: 14px 16px 12px;
+    min-width: 0;
   }
-  .trend-head { display: flex; justify-content: space-between; align-items: baseline;
-    font-size: 12.5px; font-weight: 650; color: var(--text-2); margin-bottom: 10px; }
+  .dpanel-head {
+    display: flex; align-items: baseline; justify-content: space-between; gap: 12px;
+    padding-bottom: 10px; margin-bottom: 4px;
+    border-bottom: 1px solid var(--border);
+  }
+  .dpanel-head[data-open] { cursor: pointer; }
+  .dpanel-head[data-open]:hover h2 { color: var(--green-400); }
+  .dpanel-head[data-open]:focus-visible { outline: 2px solid var(--green-500); outline-offset: 3px; border-radius: 4px; }
+  .dpanel-head h2 { font-size: 14.5px; font-weight: 700; color: var(--text-1); margin: 0; }
+  .dpanel-note { font-size: 11px; font-weight: 550; color: var(--text-3); white-space: nowrap; }
+  .dpanel-body { flex: 1; min-width: 0; }
+  .dpanel-empty { font-size: 12px; color: var(--text-3); padding: 20px 0; text-align: center; }
+
+  /* One line per day / bill / person */
+  .drow {
+    display: flex; align-items: center; justify-content: space-between; gap: 12px;
+    padding: 7px 0; border-bottom: 1px solid var(--border); min-width: 0;
+  }
+  .drow:last-child { border-bottom: none; }
+  .drow-day {
+    font-size: 12.5px; font-weight: 650; color: var(--text-1); min-width: 0;
+    overflow: hidden; text-overflow: ellipsis;
+  }
+  .drow-day em {
+    display: block; font-style: normal; font-weight: 500;
+    font-size: 11px; color: var(--text-3); margin-top: 1px;
+  }
+  /* The cash rows name the counter on the same line, as the mockup has it */
+  #dp-cash .drow-day em { display: inline; margin: 0; }
+  .drow-right { display: flex; align-items: center; gap: 12px; white-space: nowrap; }
+  .drow-sq { font-size: 11.5px; color: var(--text-3); font-variant-numeric: tabular-nums; }
+  .drow-var { font-size: 11.5px; font-weight: 650; font-variant-numeric: tabular-nums; }
+  .drow-amt { font-size: 13px; font-weight: 700; color: var(--text-1);
+    font-variant-numeric: tabular-nums; min-width: 68px; text-align: right; }
+  .drow-fill {
+    font-family: var(--font); font-size: 11px; font-weight: 650;
+    padding: 4px 10px; border-radius: 999px; cursor: pointer;
+    border: 1px solid var(--green-500); background: transparent; color: var(--green-400);
+  }
+  .drow-fill:hover { background: rgba(47,192,141,.12); }
+
+  .dpanel-foot { border-top: 1px solid var(--border); margin-top: 8px; padding-top: 8px; }
+  .dpanel-foot:empty { border: none; margin: 0; padding: 0; }
+  .dfoot-row {
+    display: flex; justify-content: space-between; gap: 12px;
+    font-size: 12px; color: var(--text-2); padding: 3px 0;
+    font-variant-numeric: tabular-nums;
+  }
+  .dfoot-row.total { font-size: 13px; font-weight: 700; color: var(--text-1); }
+
+  #dash-panels .ok    { color: var(--green-400); }
+  #dash-panels .pos   { color: var(--green-400); }
+  #dash-panels .near  { color: var(--text-2); }
+  #dash-panels .off   { color: var(--red-500); }
+  #dash-panels .muted { color: var(--text-3); }
+
+  .dbadge {
+    font-size: 10px; font-weight: 700; padding: 2px 8px; border-radius: 999px;
+    border: 1px solid var(--border-md); color: var(--text-3);
+  }
+  .dbadge.ok    { border-color: var(--green-500); color: var(--green-400); background: rgba(47,192,141,.10); }
+  .dbadge.local { border-color: var(--amber-500); color: var(--amber-500); }
+  .dbadge.cogs  { border-color: var(--border-md); }
+
   .trend-hint { font-size: 11px; font-weight: 500; color: var(--text-3); }
-  .trend-bars { display: flex; align-items: flex-end; gap: 14px; height: 132px; }
+  .trend-bars { display: flex; align-items: flex-end; gap: 14px; height: 150px; margin-top: 12px; }
   .trend-col { flex: 1; display: flex; flex-direction: column; align-items: center;
     justify-content: flex-end; gap: 6px; height: 100%; min-width: 0; }
   .trend-col .fig { font-size: 11.5px; font-weight: 700; color: var(--text-2);
