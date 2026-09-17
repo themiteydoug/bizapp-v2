@@ -813,7 +813,9 @@ const CashModule = (() => {
       notes:       'Filled from Square cash drawer — day not counted',
     });
     App.toast(`Added $${amount.toFixed(2)} from Square for ${new Date(date + 'T12:00:00').toLocaleDateString('en-AU', { weekday: 'short', day: 'numeric', month: 'short' })}`);
-    loadWeeklyData();
+    // Called from the dashboard panel too, where the cash page has never been
+    // built — there is nothing to repaint and no reason to re-fetch the week.
+    if (document.getElementById('wk-daily-breakdown')) loadWeeklyData();
   }
 
   function recalcWeeklyVariance(recs, squareCash) {
@@ -879,6 +881,8 @@ const CashModule = (() => {
     return String(s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
   }
 
-  return { init, switchTab, setWeek };
+  // fillMissedFromSquare is exposed so the dashboard's cash panel can offer the
+  // same "use Square's drawer figure" action for a day nobody counted.
+  return { init, switchTab, setWeek, fillMissedFromSquare };
 
 })();
