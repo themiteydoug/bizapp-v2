@@ -25,7 +25,7 @@ const CONFIG = {
   // step with the service-worker cache version (sw.js) so you can confirm a
   // device picked up the latest update.
   VERSION: '6.5',
-  BUILD:   70,
+  BUILD:   71,
 
   // ── API endpoints (Vercel serverless functions) ──
   API: {
