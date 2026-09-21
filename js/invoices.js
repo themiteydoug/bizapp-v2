@@ -332,7 +332,19 @@ const InvoiceModule = (() => {
           ? `<div data-open="${i}" style="width:64px;height:64px;border-radius:8px;background:var(--bg-2);border:1px solid var(--border,#0002);display:flex;flex-direction:column;align-items:center;justify-content:center;font-size:12px;font-weight:700;color:var(--red-500);cursor:pointer">PDF<span style="font-weight:400;color:var(--text-3);font-size:10px">page ${i + 1}</span></div>`
           : `<img data-open="${i}" src="${pg.dataUrl}" style="width:64px;height:64px;object-fit:cover;border-radius:8px;cursor:pointer">`}
         <button data-del="${i}" title="Remove page" style="position:absolute;top:-6px;right:-6px;width:20px;height:20px;border-radius:50%;border:none;background:var(--red-500);color:#fff;font-size:14px;line-height:1;cursor:pointer">×</button>
+        ${pg.kind === 'image'
+          ? `<button data-rot="${i}" title="Turn a quarter turn clockwise" style="position:absolute;bottom:-6px;right:-6px;width:20px;height:20px;border-radius:50%;border:none;background:var(--green-600);color:#fff;font-size:12px;line-height:1;cursor:pointer">↻</button>`
+          : ''}
       </div>`).join('');
+
+    el.querySelectorAll('[data-rot]').forEach(b => b.addEventListener('click', async ev => {
+      ev.preventDefault(); ev.stopPropagation();
+      const i = +b.getAttribute('data-rot');
+      b.disabled = true;
+      pages[i].dataUrl = await rotateImage(pages[i].dataUrl, 90);
+      photoChanged = true;
+      renderPagesStrip();
+    }));
 
     el.querySelectorAll('[data-del]').forEach(b => b.addEventListener('click', ev => {
       ev.preventDefault(); ev.stopPropagation();
@@ -411,20 +423,126 @@ const InvoiceModule = (() => {
     document.body.appendChild(overlay);
   }
 
+  // ── Photo orientation ─────────────────────────
+  // A phone records which way it was held as an EXIF tag rather than rotating
+  // the pixels. Canvas output carries no EXIF, so whatever isn't baked in here
+  // is lost for good — which is how invoices ended up stored on their side.
+
+  // Read the EXIF Orientation tag (1–8) out of a JPEG's APP1 segment.
+  function exifOrientation(buffer) {
+    try {
+      const view = new DataView(buffer);
+      if (view.byteLength < 4 || view.getUint16(0, false) !== 0xFFD8) return 1;   // not a JPEG
+      let off = 2;
+      while (off + 4 <= view.byteLength) {
+        const marker = view.getUint16(off, false);
+        if ((marker & 0xFF00) !== 0xFF00) return 1;
+        off += 2;
+        const size = view.getUint16(off, false);
+        if (marker === 0xFFE1) {                                   // APP1 — where EXIF lives
+          if (off + 10 > view.byteLength) return 1;
+          if (view.getUint32(off + 2, false) !== 0x45786966) return 1;   // 'Exif'
+          const tiff = off + 8;
+          const little = view.getUint16(tiff, false) === 0x4949;
+          const dir = tiff + view.getUint32(tiff + 4, little);
+          if (dir + 2 > view.byteLength) return 1;
+          const count = view.getUint16(dir, little);
+          for (let i = 0; i < count; i++) {
+            const entry = dir + 2 + i * 12;
+            if (entry + 12 > view.byteLength) break;
+            if (view.getUint16(entry, little) === 0x0112) {         // Orientation
+              const v = view.getUint16(entry + 8, little);
+              return (v >= 1 && v <= 8) ? v : 1;
+            }
+          }
+          return 1;
+        }
+        off += size;
+      }
+    } catch { /* unreadable header — treat as upright */ }
+    return 1;
+  }
+
+  // Canvas transform that undoes each EXIF orientation. w/h are the drawn image's
+  // own dimensions; the canvas is the swapped size for the quarter-turn cases.
+  function applyExifTransform(ctx, orientation, w, h) {
+    switch (orientation) {
+      case 2: ctx.transform(-1, 0, 0,  1, w, 0); break;   // flip horizontal
+      case 3: ctx.transform(-1, 0, 0, -1, w, h); break;   // 180°
+      case 4: ctx.transform( 1, 0, 0, -1, 0, h); break;   // flip vertical
+      case 5: ctx.transform( 0, 1, 1,  0, 0, 0); break;   // transpose
+      case 6: ctx.transform( 0, 1, -1, 0, h, 0); break;   // 90° clockwise
+      case 7: ctx.transform( 0, -1, -1, 0, h, w); break;  // transverse
+      case 8: ctx.transform( 0, -1, 1,  0, 0, w); break;  // 270° clockwise
+    }
+  }
+
+  function swapsAxes(orientation) { return orientation >= 5 && orientation <= 8; }
+
   // Resize an image dataURL down to maxDim on its longest edge, re-encoded as
-  // JPEG. Falls back to the original on any failure.
-  function compressImage(dataUrl, maxDim = 1400, quality = 0.72) {
+  // JPEG with the EXIF rotation baked in. Falls back to the original on failure.
+  async function compressImage(dataUrl, maxDim = 1400, quality = 0.72) {
+    try {
+      const blob = await (await fetch(dataUrl)).blob();
+      const orientation = exifOrientation(await blob.arrayBuffer());
+
+      // imageOrientation:'none' hands back the raw pixels, so the transform below
+      // is applied exactly once. Without it, browsers that auto-orient and those
+      // that don't would disagree.
+      if (typeof createImageBitmap === 'function') {
+        const bmp = await createImageBitmap(blob, { imageOrientation: 'none' });
+        const out = drawOriented(bmp, bmp.width, bmp.height, orientation, maxDim, quality);
+        bmp.close?.();
+        return out;
+      }
+    } catch (e) {
+      console.warn('[image] orientation pass failed, using the browser default:', e.message);
+    }
+
+    // Older browsers: <img> auto-orients on decode, so draw it as-is.
+    return new Promise(resolve => {
+      const img = new Image();
+      img.onload = () => {
+        try { resolve(drawOriented(img, img.naturalWidth, img.naturalHeight, 1, maxDim, quality)); }
+        catch { resolve(dataUrl); }
+      };
+      img.onerror = () => resolve(dataUrl);
+      img.src = dataUrl;
+    });
+  }
+
+  function drawOriented(source, srcW, srcH, orientation, maxDim, quality) {
+    const scale = Math.min(1, maxDim / Math.max(srcW, srcH));
+    const w = Math.max(1, Math.round(srcW * scale));
+    const h = Math.max(1, Math.round(srcH * scale));
+    const canvas = document.createElement('canvas');
+    canvas.width  = swapsAxes(orientation) ? h : w;
+    canvas.height = swapsAxes(orientation) ? w : h;
+    const ctx = canvas.getContext('2d');
+    applyExifTransform(ctx, orientation, w, h);
+    ctx.drawImage(source, 0, 0, w, h);
+    return canvas.toDataURL('image/jpeg', quality);
+  }
+
+  // Turn a stored page by a quarter turn at a time — used by the rotate button
+  // and by the reading the scan gives us.
+  function rotateImage(dataUrl, degrees) {
+    const deg = ((degrees % 360) + 360) % 360;
+    if (!deg) return Promise.resolve(dataUrl);
     return new Promise(resolve => {
       const img = new Image();
       img.onload = () => {
         try {
-          const scale = Math.min(1, maxDim / Math.max(img.width, img.height));
-          const w = Math.max(1, Math.round(img.width * scale));
-          const h = Math.max(1, Math.round(img.height * scale));
+          const swap = deg === 90 || deg === 270;
+          const w = img.naturalWidth, h = img.naturalHeight;
           const canvas = document.createElement('canvas');
-          canvas.width = w; canvas.height = h;
-          canvas.getContext('2d').drawImage(img, 0, 0, w, h);
-          resolve(canvas.toDataURL('image/jpeg', quality));
+          canvas.width  = swap ? h : w;
+          canvas.height = swap ? w : h;
+          const ctx = canvas.getContext('2d');
+          ctx.translate(canvas.width / 2, canvas.height / 2);
+          ctx.rotate(deg * Math.PI / 180);
+          ctx.drawImage(img, -w / 2, -h / 2);
+          resolve(canvas.toDataURL('image/jpeg', 0.85));
         } catch { resolve(dataUrl); }
       };
       img.onerror = () => resolve(dataUrl);
@@ -446,7 +564,11 @@ const InvoiceModule = (() => {
     '{"supplier": string, "invoiceNo": string, "invoiceDate": "YYYY-MM-DD", ' +
     '"totalIncGst": number, "gst": number, ' +
     '"abn": string, "phone": string, "bpayBiller": string, "bankAccount": string, ' +
-    '"email": string, "addressLine": string}\n' +
+    '"email": string, "addressLine": string, "pageRotations": [number]}\n' +
+    'pageRotations has one entry per page supplied, in the order given: the ' +
+    'clockwise rotation in degrees (0, 90, 180 or 270) needed to turn that page ' +
+    'so its printed text reads upright, left to right. Use 0 when it is already ' +
+    'upright — most pages are.\n' +
     'totalIncGst is the grand total payable including GST for the whole invoice ' +
     '(prefer a line labelled Total, Amount Due, Amount Payable, or Balance — usually ' +
     'on the last page). gst is the GST/tax amount; if not shown, set it to null. ' +
@@ -460,6 +582,26 @@ const InvoiceModule = (() => {
     'bpayBiller = the BPAY biller code; bankAccount = BSB and account number; ' +
     'email = supplier email; addressLine = the supplier street address. ' +
     'Use null for any field you cannot read. Do not guess amounts.';
+
+  // A photo taken of an invoice lying on the counter has no EXIF tag saying it's
+  // sideways — the pixels genuinely are. The scan has just looked at every page,
+  // so it can say which way the text runs; turning them here costs no extra call.
+  async function straightenPages(rotations, sentPages) {
+    if (!Array.isArray(rotations)) return;
+    let turned = 0;
+    for (let k = 0; k < rotations.length && k < sentPages.length; k++) {
+      const deg = Number(rotations[k]);
+      const pg  = pages[sentPages[k]];
+      if (!pg || pg.kind !== 'image') continue;            // PDF pages are left alone
+      if (![90, 180, 270].includes(deg)) continue;
+      pg.dataUrl = await rotateImage(pg.dataUrl, deg);
+      turned++;
+    }
+    if (turned) {
+      photoChanged = true;
+      renderPagesStrip();
+    }
+  }
 
   // Build a Claude content block from a page (image → image block, PDF → document block).
   function pageToBlock(pg) {
@@ -476,7 +618,14 @@ const InvoiceModule = (() => {
   }
 
   async function scanPages() {
-    const blocks = pages.map(pageToBlock).filter(Boolean);
+    // Track which page each block came from, so the rotations that come back
+    // line up even when a page can't be turned into a block.
+    const blocks = [];
+    const sentPages = [];
+    pages.forEach((pg, i) => {
+      const b = pageToBlock(pg);
+      if (b) { blocks.push(b); sentPages.push(i); }
+    });
     if (!blocks.length) { setScanStatus('', false); return; }
 
     // Keep the upload within the serverless body limit (~4.5 MB). base64 is ~4/3
@@ -509,6 +658,7 @@ const InvoiceModule = (() => {
       const parsed = parseScanJson(text);
       if (!parsed) throw new Error('AI did not return invoice data');
       const { filled, supplierMatched } = applyScan(parsed);
+      await straightenPages(parsed.pageRotations, sentPages);
 
       // Warn straight away if this looks like an invoice already entered.
       const dupe = currentFormDuplicate();
