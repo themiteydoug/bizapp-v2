@@ -61,20 +61,15 @@
 
 /* Base */
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-html {
-  font-size: 16px;
-  -webkit-text-size-adjust: 100%;
-  /* Whatever the system paints outside the laid-out page — the strip behind the
-     status bar, the strip by the home indicator, any overscroll — comes from the
-     root background, and with none set here it fell back to body's light grey.
-     That is the white band above the header. A hard-stop gradient gives the top
-     half the header's green and the bottom half the nav's surface colour; the
-     body covers the join, so only the two end strips are ever seen. */
-  background: linear-gradient(var(--green-900) 0 50%, var(--surface) 50% 100%);
-}
+html { font-size: 16px; -webkit-text-size-adjust: 100%; }
 body {
   font-family: var(--font);
-  background: var(--bg);
+  /* iOS fills the status bar strip from the DOCUMENT's background colour, not
+     from whatever is painted at the top of the page — so a light body put a
+     light band above the green header. The page's own light background moved
+     onto #app below, which leaves this free to match the header. Nothing on
+     screen changes: #app covers the body completely. */
+  background: var(--green-900);
   color: var(--text-1);
   overflow: hidden;
   height: 100dvh;
@@ -88,6 +83,7 @@ body {
 #app {
   display: flex;
   flex-direction: column;
+  background: var(--bg);        /* the page background, moved off body */
   height: 100dvh;
   max-width: 430px;
   margin: 0 auto;
