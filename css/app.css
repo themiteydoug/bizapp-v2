@@ -1471,8 +1471,10 @@ select.field-input { appearance: none; background-image: url("data:image/svg+xml
      The page was running the full width of a monitor for a list of job
      names. Capped, and in setup the list keeps the left while the open
      job's settings sit beside it. */
-  body.focus-view #page-clean .page-scroll { max-width: 1000px; }
-  body.focus-view #page-clean .clean-list { max-width: 720px; }
+  /* One cap, on the page. The day's list had a second one at 720px inside it,
+     which left a checklist sitting in a narrow column with half a monitor
+     empty beside it. */
+  body.focus-view #page-clean .page-scroll { max-width: 1180px; }
 
   /* This is now the ONLY rule that sets .clean-editor's display anywhere in the
      file. It used to be display:grid here and display:block at base level
