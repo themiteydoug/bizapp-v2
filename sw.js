@@ -1,5 +1,5 @@
 /**
- * BizOps Service Worker v73
+ * BizOps Service Worker v74
  * Caches ONLY static assets — never API responses or financial data (FIND-004)
  *
  * Strategy: NETWORK-FIRST for the app shell so code/UI updates apply on the next
@@ -7,7 +7,7 @@
  * (v5 was cache-first, which pinned stale JS until the cache name was bumped.)
  */
 
-const CACHE = 'bizops-v73';
+const CACHE = 'bizops-v74';
 
 // Only static shell files — NO API endpoints
 const STATIC_SHELL = [
@@ -23,6 +23,7 @@ const STATIC_SHELL = [
   '/js/staff.js',
   '/js/cash.js',
   '/js/timesheets.js',
+  '/js/cleaning.js',
   '/js/dashboard.js',
   '/js/app.js',
   '/js/api-square.js',

@@ -23,8 +23,8 @@ const KV_URL   = process.env.KV_REST_API_URL  || process.env.UPSTASH_REDIS_REST_
 const KV_TOKEN = process.env.KV_REST_API_TOKEN || process.env.UPSTASH_REDIS_REST_TOKEN;
 
 const PREFIX      = 'pcw:';
-const COLLECTIONS = ['invoices', 'cashRecs', 'tsPushes'];      // Redis hashes
-const SINGLETONS  = ['settings', 'tsAdjustments', 'staff', 'supplierFingerprints', 'tombstones']; // Redis string keys
+const COLLECTIONS = ['invoices', 'cashRecs', 'tsPushes', 'cleanLog'];   // Redis hashes
+const SINGLETONS  = ['settings', 'tsAdjustments', 'staff', 'supplierFingerprints', 'tombstones', 'cleanJobs']; // Redis string keys
 
 // Bumped by every write. Pollers read this instead of re-downloading the whole
 // snapshot each time — the snapshot grows with every invoice and cash count, so

@@ -5,7 +5,7 @@
 
 const App = (() => {
 
-  const pages = ['dashboard', 'invoices', 'cash', 'timesheets', 'staff'];
+  const pages = ['dashboard', 'invoices', 'cash', 'timesheets', 'clean', 'staff'];
   let activePage = 'dashboard';
 
   // Shared selected week (Monday ISO date) so the chosen week persists across
@@ -56,6 +56,7 @@ const App = (() => {
       if (page === 'cash')       CashModule.init();
       if (page === 'timesheets') TimesheetsModule.init();
       if (page === 'staff')      StaffModule.init();
+      if (page === 'clean')      CleaningModule.init();
     } catch (e) {
       inited.delete(page);                       // let it retry on the next open
       console.warn('[module] ' + page, e.message);
@@ -95,6 +96,7 @@ const App = (() => {
     if (page === 'cash')       CashModule.init();
     if (page === 'timesheets') TimesheetsModule.init();
     if (page === 'staff')      StaffModule.init();
+    if (page === 'clean')      CleaningModule.init();
     if (page === 'invoices')   InvoiceModule.init();
   }
 
@@ -155,6 +157,7 @@ const App = (() => {
     try {
       if (activePage === 'invoices')  InvoiceModule.reloadList?.();
       if (activePage === 'dashboard') Dashboard.refresh?.();
+      CleaningModule.refresh?.();
     } catch (e) { console.warn('onDataChanged', e); }
   }
 
@@ -415,6 +418,14 @@ const App = (() => {
 
   // ── Settings ──────────────────────────────────
 
+  // Sign out — straight back to the PIN pad, no digging through settings.
+  function bindSignOut() {
+    document.getElementById('signout-btn')?.addEventListener('click', () => {
+      if (!confirm('Sign out and return to the PIN pad?')) return;
+      Auth.logout();
+    });
+  }
+
   function bindSettings() {
     document.getElementById('settings-btn')?.addEventListener('click', openSettings);
     document.getElementById('close-settings-modal')?.addEventListener('click', () => {
@@ -443,13 +454,16 @@ const App = (() => {
     bindSummaryCards();
     bindSync();
     bindSettings();
+    bindSignOut();
     initPWA();
 
     // Resolve Xero connection (tokens live server-side) before the dashboard
     // decides whether to fetch overheads etc.
     await XeroAPI.checkConnection();
 
-    await Dashboard.init();
+    // Nobody has signed in yet — don't spend a week of Square and Xero calls on
+    // a PIN pad. Logging in reloads the page, so the dashboard starts up then.
+    if (Auth.isLoggedIn()) await Dashboard.init();
 
     // Start live cross-device sync (no-op if KV isn't configured).
     Sync.init();

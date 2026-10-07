@@ -85,6 +85,12 @@ const Auth = (() => {
               </button>
             `).join('')}
           </div>
+          <button id="pin-cleaning" style="
+            margin-top:14px;padding:13px 26px;border-radius:14px;
+            border:1px solid rgba(255,255,255,0.22);background:rgba(255,255,255,0.06);
+            color:#fff;font-size:15px;font-weight:600;font-family:inherit;cursor:pointer;
+          ">Cleaning list</button>
+          <div style="font-size:12px;color:#7FBFA8">No PIN needed</div>
         </div>
       `;
       document.body.appendChild(screen);
@@ -93,6 +99,12 @@ const Auth = (() => {
         const btn = e.target.closest('button');
         if (!btn || btn.disabled) return;
         pinKey(btn.dataset.key);
+      });
+      // Staff tick jobs off without signing in — the list is the whole point of
+      // them picking the device up.
+      screen.querySelector('#pin-cleaning').addEventListener('click', () => {
+        try { CleaningModule.openStandalone(); }
+        catch (e) { console.warn('[cleaning]', e.message); }
       });
     }
     screen.style.display = 'block';

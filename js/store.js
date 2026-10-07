@@ -15,6 +15,8 @@ const Store = (() => {
     SETTINGS:    'bizops_settings',
     SUPPLIER_FP: 'bizops_supplier_fp',
     TOMBSTONES:  'bizops_tombstones',
+    CLEAN_JOBS:  'bizops_clean_jobs',
+    CLEAN_LOG:   'bizops_clean_log',
   };
 
   // ── Staff ──────────────────────────────────────
@@ -335,8 +337,65 @@ const Store = (() => {
     mirrorKey('settings', s);
   }
 
+  // ── Cleaning list ──────────────────────────────
+  // Jobs are one shared list (a singleton); completions are a collection, one
+  // record per job per day with a deterministic id so re-ticking a job updates
+  // the same record on every device instead of piling up duplicates.
+
+  function getCleanJobs() {
+    try { return JSON.parse(localStorage.getItem(KEYS.CLEAN_JOBS) || '[]'); } catch { return []; }
+  }
+
+  function saveCleanJobs(jobs) {
+    const list = (jobs || []).map((j, i) => ({ ...j, order: i }));
+    localStorage.setItem(KEYS.CLEAN_JOBS, JSON.stringify(list));
+    mirrorKey('cleanJobs', list);
+    return list;
+  }
+
+  function getCleanLog(dateStr) {
+    let all = [];
+    try { all = JSON.parse(localStorage.getItem(KEYS.CLEAN_LOG) || '[]'); } catch {}
+    return dateStr ? all.filter(r => r.date === dateStr) : all;
+  }
+
+  // Each tick gets its own id. Unticking tombstones that id permanently, and a
+  // tombstone is never lifted — so a reused id could never be ticked again. Any
+  // earlier tick for the same job today is retired the same way, which keeps
+  // one live record per job per day.
+  function retireCleanTicks(dateStr, jobId) {
+    const gone = getCleanLog(dateStr).filter(r => r.jobId === jobId);
+    const kept = getCleanLog().filter(r => !(r.date === dateStr && r.jobId === jobId));
+    localStorage.setItem(KEYS.CLEAN_LOG, JSON.stringify(kept));
+    gone.forEach(r => {
+      addTombstone(r.id);
+      try { window.Sync && Sync.delItem('cleanLog', r.id); } catch {}
+    });
+    return kept;
+  }
+
+  function logCleanJob(dateStr, jobId, staff) {
+    const kept = retireCleanTicks(dateStr, jobId);
+    const rec = {
+      id:        `clean_${dateStr}_${jobId}_${Date.now().toString(36)}`,
+      date:      dateStr,
+      jobId,
+      staffId:   staff?.id || '',
+      staffName: staff?.name || '',
+      doneAt:    new Date().toISOString(),
+    };
+    localStorage.setItem(KEYS.CLEAN_LOG, JSON.stringify([rec, ...kept]));
+    mirrorItem('cleanLog', rec);
+    return rec;
+  }
+
+  function clearCleanJob(dateStr, jobId) {
+    retireCleanTicks(dateStr, jobId);
+  }
+
   return {
     getStaff, saveStaff, updateStaffMember,
+    getCleanJobs, saveCleanJobs, getCleanLog, logCleanJob, clearCleanJob,
     getInvoices, saveInvoice, updateInvoice, deleteInvoice,
     getTombstones,
     getSupplierFingerprints, saveSupplierFingerprints,
