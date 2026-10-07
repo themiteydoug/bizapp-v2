@@ -123,8 +123,33 @@ const Sync = (() => {
   }
 
   // Pull the shared snapshot and merge it into localStorage.
+  // The revision we last pulled. null means "never pulled", so the first poll
+  // always fetches the snapshot in full.
+  let lastRev = null;
+
+  // Ask the server whether anything has changed — a couple of dozen bytes,
+  // against a snapshot that carries every invoice and cash count ever entered
+  // and grows every week. Polling the snapshot itself was burning through the
+  // hosting data allowance for no benefit; nothing changes most ticks.
+  // Returns true when a full pull is warranted.
+  async function revChanged() {
+    if (lastRev === null) return true;
+    try {
+      const res = await fetch(`${API}?rev=1`, { method: 'GET', cache: 'no-store' });
+      if (res.status === 503) { available = false; setConnected(false); return false; }
+      if (!res.ok) return true;              // can't tell — fall back to a full pull
+      const { rev } = await res.json();
+      setConnected(true);
+      return rev !== lastRev;
+    } catch {
+      setConnected(false);
+      return false;
+    }
+  }
+
   async function pull() {
     if (CONFIG.FEATURES.DEMO_MODE || !available) return;
+    if (!(await revChanged())) return;
     let snap;
     try {
       const res = await fetch(API, { method: 'GET' });
@@ -132,6 +157,9 @@ const Sync = (() => {
       if (!res.ok) { setConnected(false); return; }
       snap = await res.json();
       setConnected(true);
+      // Only advance once the snapshot is actually in hand, so a failed pull
+      // is retried rather than silently skipped.
+      if (typeof snap.rev === 'number') lastRev = snap.rev;
     } catch { setConnected(false); return; }
 
     let changed = false;
