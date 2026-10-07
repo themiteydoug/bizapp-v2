@@ -18,10 +18,14 @@
 
 const CleaningModule = (() => {
 
+  // Monday-first, the way the week reads on a roster. The single letters repeat
+  // (T, T and S, S) — that's how the iOS repeat picker does it and position
+  // carries the meaning.
   const DAYS = [
-    { i: 1, short: 'Mon' }, { i: 2, short: 'Tue' }, { i: 3, short: 'Wed' },
-    { i: 4, short: 'Thu' }, { i: 5, short: 'Fri' }, { i: 6, short: 'Sat' },
-    { i: 0, short: 'Sun' },     // JS getDay(): 0 = Sunday
+    { i: 1, short: 'Mon', letter: 'M' }, { i: 2, short: 'Tue', letter: 'T' },
+    { i: 3, short: 'Wed', letter: 'W' }, { i: 4, short: 'Thu', letter: 'T' },
+    { i: 5, short: 'Fri', letter: 'F' }, { i: 6, short: 'Sat', letter: 'S' },
+    { i: 0, short: 'Sun', letter: 'S' },     // JS getDay(): 0 = Sunday
   ];
 
   // A Monday. Anchors the every-four-weeks cycle so all devices agree.
@@ -68,7 +72,7 @@ const CleaningModule = (() => {
       return job.monthly ? `${names} · every 4 weeks` : names;
     }
     if (job.monthly) return 'Every 4 weeks';
-    return 'Not scheduled';
+    return 'Never';
   }
 
   // ── Who was on tonight ────────────────────────
@@ -213,12 +217,22 @@ const CleaningModule = (() => {
               <input class="clean-input" value="${esc(j.title)}" data-title="${i}" placeholder="Job name">
               <button class="clean-del" data-del="${i}" title="Remove job" aria-label="Remove job">×</button>
             </div>
-            <div class="clean-days">
-              <button class="clean-chip ${j.daily ? 'on' : ''}" data-daily="${i}">Daily</button>
-              ${DAYS.map(d => `<button class="clean-chip ${(j.days || []).includes(d.i) ? 'on' : ''}" data-day="${i}:${d.i}">${d.short}</button>`).join('')}
-              <button class="clean-chip ${j.monthly ? 'on' : ''}" data-monthly="${i}">Monthly</button>
+            <div class="clean-repeat">
+              <div class="clean-repeat-head">
+                <span>Repeat</span>
+                <span class="clean-repeat-val">${esc(scheduleLabel(j))}</span>
+              </div>
+              <div class="clean-circles">
+                ${DAYS.map(d => `
+                  <button class="clean-circle ${(j.days || []).includes(d.i) ? 'on' : ''}"
+                    data-day="${i}:${d.i}" title="${d.short}" aria-label="${d.short}"
+                    aria-pressed="${(j.days || []).includes(d.i)}">${d.letter}</button>`).join('')}
+              </div>
+              <div class="clean-repeat-opts">
+                <button class="clean-chip ${j.daily ? 'on' : ''}" data-daily="${i}" aria-pressed="${!!j.daily}">Daily</button>
+                <button class="clean-chip ${j.monthly ? 'on' : ''}" data-monthly="${i}" aria-pressed="${!!j.monthly}">Monthly</button>
+              </div>
             </div>
-            <div class="clean-sched">${esc(scheduleLabel(j))}</div>
           </div>`).join('')}
       </div>
       <button class="secondary-btn full-btn" id="clean-add">+ Add a job</button>`;
