@@ -1809,13 +1809,27 @@ select.field-input { appearance: none; background-image: url("data:image/svg+xml
 }
 .clean-overlay-bar {
   display: flex; align-items: center; justify-content: space-between;
-  padding: calc(var(--safe-top, 0px) + 14px) 16px 14px;
+  /* env() directly, as everywhere else in this file — there is no --safe-top
+     variable, so var(--safe-top) fell back to zero and put this bar under the
+     status bar, where iOS owns the taps. */
+  padding: calc(env(safe-area-inset-top, 0px) + 14px) 12px 14px;
   background: var(--green-900); color: #fff;
   font-size: 15px; font-weight: 650;
 }
 .clean-back {
-  width: 56px; text-align: left; background: none; border: none;
-  color: #fff; font-family: var(--font); font-size: 15px; font-weight: 600; cursor: pointer;
+  /* A real tap target — this is the way out of the full-screen list. */
+  min-width: 72px; min-height: 44px; padding: 0 8px;
+  display: flex; align-items: center; gap: 2px;
+  background: none; border: none; color: #fff;
+  font-family: var(--font); font-size: 16px; font-weight: 600; cursor: pointer;
+}
+/* A second way out, at the end of the list — where someone who has just
+   finished the jobs actually is. */
+.clean-done-btn {
+  width: 100%; margin-top: 22px; padding: 15px;
+  border: 1px solid var(--border-md); border-radius: var(--r-lg);
+  background: var(--surface); color: var(--text-1);
+  font-family: var(--font); font-size: 15px; font-weight: 650; cursor: pointer;
 }
 .clean-overlay-body {
   flex: 1; overflow-y: auto; -webkit-overflow-scrolling: touch;
