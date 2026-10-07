@@ -30,6 +30,105 @@ const ALLOWED_ENDPOINTS = [
 
 const ALLOWED_ORIGIN = process.env.APP_ORIGIN || 'https://bizapp-v2.vercel.app';
 
+/**
+ * Response trimming (opt in with _trim=1)
+ * ---------------------------------------
+ * Square returns the whole object graph — every line item, modifier, tax line,
+ * card detail and receipt URL. The app reads a handful of fields and throws the
+ * rest away, after paying to ship it out of the origin. A day of trading comes
+ * back as hundreds of kilobytes to produce two numbers.
+ *
+ * Each projection below keeps EXACTLY the fields its caller in js/api-square.js
+ * reads. Adding a field to a caller means adding it here as well, or it will
+ * silently arrive undefined and be counted as zero.
+ *
+ * Trimming is opt-in per call so that is a visible decision at the call site,
+ * and it is skipped entirely on an error response so debugging detail survives.
+ */
+const money = m => (m && typeof m.amount === 'number') ? { amount: m.amount } : undefined;
+
+const TRIM = {
+  // fetchTakingsReal: state, tenders, and the net/total money fields
+  '/orders/search': d => ({
+    orders: (d.orders || []).map(o => ({
+      state:           o.state,
+      total_money:     money(o.total_money),
+      total_tip_money: money(o.total_tip_money),
+      total_tax_money: money(o.total_tax_money),
+      net_amounts: o.net_amounts ? {
+        total_money: money(o.net_amounts.total_money),
+        tip_money:   money(o.net_amounts.tip_money),
+        tax_money:   money(o.net_amounts.tax_money),
+      } : undefined,
+      tenders: (o.tenders || []).map(t => ({ type: t.type, amount_money: money(t.amount_money) })),
+    })),
+    cursor: d.cursor,
+  }),
+
+  // fetchWeeklyPayments: cash vs card split of completed payments
+  '/payments': d => ({
+    payments: (d.payments || []).map(p => ({
+      status:       p.status,
+      source_type:  p.source_type,
+      amount_money: money(p.amount_money),
+    })),
+    cursor: d.cursor,
+  }),
+
+  // fetchWeeklyRefunds: completed refunds, split by where the money went
+  '/refunds': d => ({
+    refunds: (d.refunds || []).map(r => ({
+      status:           r.status,
+      destination_type: r.destination_type,
+      amount_money:     money(r.amount_money),
+    })),
+    cursor: d.cursor,
+  }),
+
+  // fetchTimesheetsReal: worked time, unpaid breaks and the rate at clock-in
+  '/labor/timecards/search': d => ({
+    timecards: (d.timecards || []).map(t => ({
+      deleted:        t.deleted,
+      team_member_id: t.team_member_id,
+      start_at:       t.start_at,
+      end_at:         t.end_at,
+      breaks: (t.breaks || []).map(b => ({ is_paid: b.is_paid, start_at: b.start_at, end_at: b.end_at })),
+      wage: t.wage ? { hourly_rate: money(t.wage.hourly_rate) } : undefined,
+    })),
+    cursor: d.cursor,
+  }),
+
+  // getRosterWeek: published shifts, plus enough of the drafts to count them
+  '/labor/scheduled-shifts/search': d => ({
+    scheduled_shifts: (d.scheduled_shifts || []).map(s => ({
+      id: s.id,
+      published_shift_details: s.published_shift_details ? {
+        team_member_id: s.published_shift_details.team_member_id,
+        job_id:         s.published_shift_details.job_id,
+        start_at:       s.published_shift_details.start_at,
+        end_at:         s.published_shift_details.end_at,
+        notes:          s.published_shift_details.notes,
+        is_deleted:     s.published_shift_details.is_deleted,
+      } : undefined,
+      draft_shift_details: s.draft_shift_details ? { is_deleted: s.draft_shift_details.is_deleted } : undefined,
+    })),
+    cursor: d.cursor,
+  }),
+
+  // getWeeklyPayouts — covers both the list and the per-payout entries, since a
+  // response carries one array or the other, never both.
+  '/payouts': d => ({
+    payouts:        (d.payouts || []).map(p => ({ id: p.id })),
+    payout_entries: (d.payout_entries || []).map(e => ({ type: e.type, amount_money: money(e.amount_money) })),
+    cursor: d.cursor,
+  }),
+};
+
+function trimFor(endpoint) {
+  const key = Object.keys(TRIM).find(k => endpoint.startsWith(k));
+  return key ? TRIM[key] : null;
+}
+
 function setCors(res) {
   res.setHeader('Access-Control-Allow-Origin', ALLOWED_ORIGIN);
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
@@ -71,6 +170,8 @@ module.exports = async (req, res) => {
   const queryParams = { ...req.query };
   delete queryParams.endpoint;
   delete queryParams._cb;        // client cache-buster — never forward to Square
+  const wantsTrim = queryParams._trim === '1';
+  delete queryParams._trim;      // ours, not Square's
 
   // Inject location_id server-side where needed (only if env var is actually set)
   const locationId = process.env.SQUARE_LOCATION_ID;
@@ -146,7 +247,9 @@ module.exports = async (req, res) => {
     if (!response.ok) {
       return res.status(response.status).json({ ...data, _debug: { url, squareStatus: response.status } });
     }
-    return res.status(response.status).json(data);
+    // Only a successful response is trimmed — an error body goes back whole.
+    const trim = wantsTrim ? trimFor(endpoint) : null;
+    return res.status(response.status).json(trim ? trim(data) : data);
   } catch (err) {
     return res.status(500).json({ error: 'Square API request failed', detail: err.message, _debug: { url } });
   }
