@@ -187,7 +187,8 @@ const CleaningModule = (() => {
       </div>
       <div class="clean-progress"><span style="width:${jobs.length ? Math.round(doneCount / jobs.length * 100) : 0}%"></span></div>
       <div class="clean-list">${rows}</div>
-      ${isToday ? '' : '<div class="clean-note">Kept for this week and last week only.</div>'}`;
+      ${isToday ? '' : '<div class="clean-note">Kept for this week and last week only.</div>'}
+      ${host.id === 'clean-overlay-host' ? '<button class="clean-done-btn">Close</button>' : ''}`;
 
     host.querySelector('#clean-manage')?.addEventListener('click', () => { editing = true; render(host); });
     host.querySelector('#clean-prev')?.addEventListener('click', () => { viewDate = shiftDate(date, -1); render(host); });
@@ -467,6 +468,15 @@ const CleaningModule = (() => {
     render(document.getElementById('clean-host'));
   }
 
+  function isOverlayOpen() {
+    return document.getElementById('clean-overlay')?.style.display === 'flex';
+  }
+
+  function closeStandalone() {
+    const el = document.getElementById('clean-overlay');
+    if (el) el.style.display = 'none';
+  }
+
   // Opened from the PIN pad: the same list, full screen, no sign-in.
   function openStandalone() {
     let el = document.getElementById('clean-overlay');
@@ -477,11 +487,17 @@ const CleaningModule = (() => {
         <div class="clean-overlay-bar">
           <button class="clean-back" id="clean-close">‹ Back</button>
           <span>Cleaning list</span>
-          <span style="width:56px"></span>
+          <span style="width:72px"></span>
         </div>
         <div class="clean-overlay-body" id="clean-overlay-host"></div>`;
       document.body.appendChild(el);
-      el.querySelector('#clean-close').addEventListener('click', () => { el.style.display = 'none'; });
+      el.addEventListener('click', e => {
+        if (e.target.closest('#clean-close, .clean-done-btn')) closeStandalone();
+      });
+      // Nothing else on this screen takes a key, so Escape is a free way out.
+      document.addEventListener('keydown', e => {
+        if (e.key === 'Escape' && isOverlayOpen()) closeStandalone();
+      });
     }
     el.style.display = 'flex';
     editing = false;                                   // never show setup here
@@ -491,13 +507,11 @@ const CleaningModule = (() => {
 
   // Re-render in place when a sync pull brings in another device's ticks.
   function refresh() {
-    if (document.getElementById('clean-overlay')?.style.display === 'flex') {
-      render(document.getElementById('clean-overlay-host'));
-    }
+    if (isOverlayOpen()) render(document.getElementById('clean-overlay-host'));
     const host = document.getElementById('clean-host');
     if (host && host.innerHTML) render(host);
   }
 
-  return { init, openStandalone, refresh, isDue, scheduleLabel };
+  return { init, openStandalone, closeStandalone, refresh, isDue, scheduleLabel };
 
 })();
