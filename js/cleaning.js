@@ -34,11 +34,18 @@ const CleaningModule = (() => {
   let editing = false;         // manager job-setup mode
   let staffCache = null;       // { date, list } — tonight's names, fetched once
   let pickerFor = null;        // job id whose name picker is open
+  let viewDate = null;         // the day on screen; null means today
 
   // ── Dates ─────────────────────────────────────
 
   function today() {
     return new Date().toLocaleDateString('sv-SE', { timeZone: 'Australia/Brisbane' });
+  }
+
+  function shiftDate(dateStr, days) {
+    const d = new Date(dateStr + 'T12:00:00Z');
+    d.setUTCDate(d.getUTCDate() + days);
+    return d.toISOString().slice(0, 10);
   }
 
   function weeksSinceEpoch(dateStr) {
@@ -110,7 +117,11 @@ const CleaningModule = (() => {
 
   function render(host) {
     if (!host) return;
-    const date = today();
+    Store.pruneCleanLog();                       // no-op once it's clean
+
+    const date = viewDate || today();
+    const isToday = date === today();
+    const floor = Store.cleanRetainFrom();       // only this week and last are kept
     const jobs = Store.getCleanJobs().filter(j => isDue(j, date));
     // Newest tick wins — a sync pull can briefly carry an older one alongside it.
     const done = {};
@@ -126,31 +137,46 @@ const CleaningModule = (() => {
 
     const rows = jobs.length ? jobs.map(j => {
       const d = done[j.id];
+      // Past days are a record of what happened, not something to edit.
+      const tick = isToday
+        ? `<button class="clean-tick" data-tick="${esc(j.id)}" aria-label="${d ? 'Undo' : 'Mark done'}">${d ? '✓' : ''}</button>`
+        : `<span class="clean-tick is-past">${d ? '✓' : ''}</span>`;
       return `
         <div class="clean-row ${d ? 'is-done' : ''}" data-job="${esc(j.id)}">
-          <button class="clean-tick" data-tick="${esc(j.id)}" aria-label="${d ? 'Undo' : 'Mark done'}">
-            ${d ? '✓' : ''}
-          </button>
+          ${tick}
           <div class="clean-main">
             <div class="clean-title">${esc(j.title)}</div>
-            <div class="clean-sub">${d ? `${esc(d.staffName || 'Done')} · ${timeOf(d.doneAt)}` : esc(j.area || scheduleLabel(j))}</div>
+            <div class="clean-sub">${d
+              ? `${esc(d.staffName || 'Done')} · ${timeOf(d.doneAt)}`
+              : (isToday ? esc(j.area || scheduleLabel(j)) : 'Not done')}</div>
           </div>
         </div>
         <div class="clean-picker" id="pick-${esc(j.id)}" hidden></div>`;
-    }).join('') : '<div class="clean-empty">No jobs scheduled for today.</div>';
+    }).join('') : `<div class="clean-empty">No jobs scheduled for ${isToday ? 'today' : 'this day'}.</div>`;
 
     host.innerHTML = `
       <div class="clean-head">
-        <div>
-          <div class="clean-day">${dayName}</div>
-          <div class="clean-count">${doneCount} of ${jobs.length} done</div>
+        <div class="clean-daynav">
+          <button class="clean-step" id="clean-prev" ${shiftDate(date, -1) < floor ? 'disabled' : ''} aria-label="Previous day">‹</button>
+          <div>
+            <div class="clean-day">${isToday ? 'Today' : dayName}</div>
+            <div class="clean-count">${isToday ? `${doneCount} of ${jobs.length} done` : `${dayName} · ${doneCount} of ${jobs.length} done`}</div>
+          </div>
+          <button class="clean-step" id="clean-next" ${isToday ? 'disabled' : ''} aria-label="Next day">›</button>
         </div>
         ${Auth.isManager() ? '<button class="secondary-btn clean-manage" id="clean-manage">Manage jobs</button>' : ''}
       </div>
       <div class="clean-progress"><span style="width:${jobs.length ? Math.round(doneCount / jobs.length * 100) : 0}%"></span></div>
-      <div class="clean-list">${rows}</div>`;
+      <div class="clean-list">${rows}</div>
+      ${isToday ? '' : '<div class="clean-note">Kept for this week and last week only.</div>'}`;
 
     host.querySelector('#clean-manage')?.addEventListener('click', () => { editing = true; render(host); });
+    host.querySelector('#clean-prev')?.addEventListener('click', () => { viewDate = shiftDate(date, -1); render(host); });
+    host.querySelector('#clean-next')?.addEventListener('click', () => {
+      const next = shiftDate(date, 1);
+      viewDate = next >= today() ? null : next;
+      render(host);
+    });
     host.querySelectorAll('[data-tick]').forEach(b => b.addEventListener('click', () => onTick(host, b.dataset.tick)));
   }
 
@@ -303,6 +329,7 @@ const CleaningModule = (() => {
 
   function init() {
     editing = false;
+    viewDate = null;
     render(document.getElementById('clean-host'));
   }
 
@@ -324,6 +351,7 @@ const CleaningModule = (() => {
     }
     el.style.display = 'flex';
     editing = false;                                   // never show setup here
+    viewDate = null;                                   // staff always get today
     render(document.getElementById('clean-overlay-host'));
   }
 
