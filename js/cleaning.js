@@ -31,6 +31,13 @@ const CleaningModule = (() => {
   // A Monday. Anchors the every-four-weeks cycle so all devices agree.
   const CYCLE_EPOCH = '2024-01-01';
 
+  // The list is one ordered run of items. A heading belongs to every job under
+  // it until the next heading, which is what lets the manager hand a block of
+  // jobs to a role for the night.
+  const isHeading = it => it && it.kind === 'heading';
+
+  const newId = () => 'job_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+
   let editing = false;         // manager job-setup mode
   let staffCache = null;       // { date, list } — tonight's names, fetched once
   let pickerFor = null;        // job id whose name picker is open
@@ -57,7 +64,7 @@ const CleaningModule = (() => {
   // ── Scheduling ────────────────────────────────
 
   function isDue(job, dateStr) {
-    if (!job || job.active === false) return false;
+    if (!job || job.active === false || isHeading(job)) return false;
     const dow = new Date(dateStr + 'T12:00:00').getDay();
     const days = job.days || [];
 
@@ -122,7 +129,8 @@ const CleaningModule = (() => {
     const date = viewDate || today();
     const isToday = date === today();
     const floor = Store.cleanRetainFrom();       // only this week and last are kept
-    const jobs = Store.getCleanJobs().filter(j => isDue(j, date));
+    const items = Store.getCleanJobs();
+    const jobs = items.filter(j => isDue(j, date));
     // Newest tick wins — a sync pull can briefly carry an older one alongside it.
     const done = {};
     Store.getCleanLog(date).forEach(r => {
@@ -135,24 +143,35 @@ const CleaningModule = (() => {
     const dayName = new Date(date + 'T12:00:00')
       .toLocaleDateString('en-AU', { weekday: 'long', day: 'numeric', month: 'long' });
 
-    const rows = jobs.length ? jobs.map(j => {
-      const d = done[j.id];
+    // Walk the list in order so each heading lands above its own jobs. A heading
+    // with nothing due under it today isn't drawn at all.
+    const parts = [];
+    let pending = null;
+    items.forEach(it => {
+      if (isHeading(it)) { pending = it; return; }
+      if (!isDue(it, date)) return;
+      if (pending) { parts.push(`<div class="clean-section">${esc(pending.title)}</div>`); pending = null; }
+
+      const d = done[it.id];
       // Past days are a record of what happened, not something to edit.
       const tick = isToday
-        ? `<button class="clean-tick" data-tick="${esc(j.id)}" aria-label="${d ? 'Undo' : 'Mark done'}">${d ? '✓' : ''}</button>`
+        ? `<button class="clean-tick" data-tick="${esc(it.id)}" aria-label="${d ? 'Undo' : 'Mark done'}">${d ? '✓' : ''}</button>`
         : `<span class="clean-tick is-past">${d ? '✓' : ''}</span>`;
-      return `
-        <div class="clean-row ${d ? 'is-done' : ''}" data-job="${esc(j.id)}">
+      parts.push(`
+        <div class="clean-row ${d ? 'is-done' : ''}" data-job="${esc(it.id)}">
           ${tick}
           <div class="clean-main">
-            <div class="clean-title">${esc(j.title)}</div>
+            <div class="clean-title">${esc(it.title)}</div>
+            ${it.notes ? `<div class="clean-notes">${esc(it.notes)}</div>` : ''}
             <div class="clean-sub">${d
               ? `${esc(d.staffName || 'Done')} · ${timeOf(d.doneAt)}`
-              : (isToday ? esc(j.area || scheduleLabel(j)) : 'Not done')}</div>
+              : (isToday ? esc(scheduleLabel(it)) : 'Not done')}</div>
           </div>
         </div>
-        <div class="clean-picker" id="pick-${esc(j.id)}" hidden></div>`;
-    }).join('') : `<div class="clean-empty">No jobs scheduled for ${isToday ? 'today' : 'this day'}.</div>`;
+        <div class="clean-picker" id="pick-${esc(it.id)}" hidden></div>`);
+    });
+    const rows = parts.length ? parts.join('')
+      : `<div class="clean-empty">No jobs scheduled for ${isToday ? 'today' : 'this day'}.</div>`;
 
     host.innerHTML = `
       <div class="clean-head">
@@ -232,17 +251,33 @@ const CleaningModule = (() => {
       <div class="clean-head">
         <div>
           <div class="clean-day">Cleaning jobs</div>
-          <div class="clean-count">${jobs.length} job${jobs.length === 1 ? '' : 's'} · tap the days each one runs</div>
+          <div class="clean-count">${jobs.filter(j => !isHeading(j)).length} jobs · ${jobs.filter(isHeading).length} headings</div>
         </div>
         <button class="primary-btn clean-manage" id="clean-done">Done</button>
       </div>
       <div class="clean-list">
-        ${jobs.map((j, i) => `
+        ${jobs.map((j, i) => isHeading(j) ? `
+          <div class="clean-edit is-heading" data-idx="${i}">
+            <div class="clean-edit-top">
+              <span class="clean-move">
+                <button class="clean-arrow" data-up="${i}" ${i === 0 ? 'disabled' : ''} aria-label="Move up">↑</button>
+                <button class="clean-arrow" data-down="${i}" ${i === jobs.length - 1 ? 'disabled' : ''} aria-label="Move down">↓</button>
+              </span>
+              <input class="clean-input is-heading-input" value="${esc(j.title)}" data-title="${i}" placeholder="Heading — e.g. Front counter">
+              <button class="clean-del" data-del="${i}" title="Remove heading" aria-label="Remove heading">×</button>
+            </div>
+          </div>` : `
           <div class="clean-edit" data-idx="${i}">
             <div class="clean-edit-top">
+              <span class="clean-move">
+                <button class="clean-arrow" data-up="${i}" ${i === 0 ? 'disabled' : ''} aria-label="Move up">↑</button>
+                <button class="clean-arrow" data-down="${i}" ${i === jobs.length - 1 ? 'disabled' : ''} aria-label="Move down">↓</button>
+              </span>
               <input class="clean-input" value="${esc(j.title)}" data-title="${i}" placeholder="Job name">
               <button class="clean-del" data-del="${i}" title="Remove job" aria-label="Remove job">×</button>
             </div>
+            <textarea class="clean-notes-input" rows="2" data-notes="${i}"
+              placeholder="How to do it (optional)">${esc(j.notes || '')}</textarea>
             <div class="clean-repeat">
               <div class="clean-repeat-head">
                 <span>Repeat</span>
@@ -261,7 +296,11 @@ const CleaningModule = (() => {
             </div>
           </div>`).join('')}
       </div>
-      <button class="secondary-btn full-btn" id="clean-add">+ Add a job</button>`;
+      <div class="clean-add-row">
+        <button class="secondary-btn" id="clean-add">+ Add a job</button>
+        <button class="secondary-btn" id="clean-add-head">+ Add a heading</button>
+      </div>
+      ${jobs.length ? '' : '<button class="primary-btn full-btn" id="clean-seed" style="margin-top:10px">Start from the Spotted Cod list</button>'}`;
 
     const jobsNow = () => Store.getCleanJobs();
 
@@ -269,8 +308,21 @@ const CleaningModule = (() => {
 
     host.querySelector('#clean-add')?.addEventListener('click', () => {
       const list = jobsNow();
-      list.push({ id: 'job_' + Date.now().toString(36), title: '', daily: true, days: [], monthly: false, active: true });
+      list.push({ id: newId(), kind: 'job', title: '', notes: '', daily: true, days: [], monthly: false, active: true });
       Store.saveCleanJobs(list);
+      renderEditor(host);
+    });
+
+    host.querySelector('#clean-add-head')?.addEventListener('click', () => {
+      const list = jobsNow();
+      list.push({ id: newId(), kind: 'heading', title: '' });
+      Store.saveCleanJobs(list);
+      renderEditor(host);
+    });
+
+    host.querySelector('#clean-seed')?.addEventListener('click', () => {
+      if (!confirm('Add the standard Spotted Cod list? You can edit or remove anything afterwards.')) return;
+      Store.saveCleanJobs(starterList());
       renderEditor(host);
     });
 
@@ -280,11 +332,31 @@ const CleaningModule = (() => {
       if (j) { j.title = inp.value.trim(); Store.saveCleanJobs(list); }
     }));
 
+    host.querySelectorAll('[data-notes]').forEach(inp => inp.addEventListener('change', () => {
+      const list = jobsNow();
+      const j = list[+inp.dataset.notes];
+      if (j) { j.notes = inp.value.trim(); Store.saveCleanJobs(list); }
+    }));
+
+    // Reorder with arrows rather than dragging — this gets used on a phone,
+    // where a long-press drag through a list this length is a fight.
+    const move = (from, to) => {
+      const list = jobsNow();
+      if (to < 0 || to >= list.length) return;
+      list.splice(to, 0, list.splice(from, 1)[0]);
+      Store.saveCleanJobs(list);
+      renderEditor(host);
+    };
+    host.querySelectorAll('[data-up]').forEach(b =>
+      b.addEventListener('click', () => move(+b.dataset.up, +b.dataset.up - 1)));
+    host.querySelectorAll('[data-down]').forEach(b =>
+      b.addEventListener('click', () => move(+b.dataset.down, +b.dataset.down + 1)));
+
     host.querySelectorAll('[data-del]').forEach(b => b.addEventListener('click', () => {
       const list = jobsNow();
       const j = list[+b.dataset.del];
       if (!j) return;
-      if (!confirm(`Remove "${j.title || 'this job'}" from the list?`)) return;
+      if (!confirm(`Remove "${j.title || (isHeading(j) ? 'this heading' : 'this job')}" from the list?`)) return;
       list.splice(+b.dataset.del, 1);
       Store.saveCleanJobs(list);
       renderEditor(host);
@@ -323,6 +395,68 @@ const CleaningModule = (() => {
       Store.saveCleanJobs(list);
       renderEditor(host);
     }));
+  }
+
+  // ── Starter list ──────────────────────────────
+  // Lifted from the Spotted Cod Daily Tasks list in Google Tasks, grouped into
+  // roles for the night. Offered once, when the list is empty; everything is
+  // editable afterwards, which is the point of the setup page.
+  function starterList() {
+    const H = title => ({ id: newId(), kind: 'heading', title });
+    const J = (title, notes, sched) => ({
+      id: newId(), kind: 'job', title, notes: notes || '',
+      daily: !sched, days: sched || [], monthly: false, active: true,
+    });
+    const MON = [1], TUE = [2], SAT = [6], SUN = [0], MON_SAT = [1, 6];
+
+    return [
+      H('Close down — kitchen'),
+      J('Seafood check', 'Top up all seafood in the crumb section. Older fish go on top.'),
+      J('Defrost seafood'),
+      J('Empty fish trays', 'Remove seafood from the display trays and put it back into the service fridge. Wash the trays.'),
+      J('Empty display fridge', 'Remove all food items and place them into large containers.'),
+      J('Empty and clean fish fridge', 'Empty all food items to the cold room. Wipe out food particles and clean.'),
+      J('Replenish stock in fish fridge', 'Make sure all fish in the under bench is topped up ready for the next day.'),
+      J('Replenish stock in burger fridge', 'Make sure the burger fridge has enough stock for the next day.'),
+      J('Fryers'),
+      J('Clean grill', 'After closing, switch off the gas and pour cold water on the grill.'),
+      J('Clean microwave'),
+      J('Clean blender', 'Make sure the blender is clean. Wipe over the outside and check for spills.'),
+      J('Cooking equipment', 'Stove — remove all hob tops and burners, scrub them and run them through.'),
+      J('Burger station', 'Clean all lids if dirty. Wipe over the inside of the chill well.'),
+      J('Clean benches', 'Remove all food items and starch them away where applicable, then wipe off.'),
+      J('Wipe over pass shelf', 'Remove all items from the shelf above the packing area and clean with spray.'),
+      J('Wipe over shelves above burger station', 'Clean the docket printer. Wipe away crumbs.'),
+      J('Clean wall outside cold room'),
+      J('Wipe over dry goods shelves out back', 'Make sure the shelves are tidy and wipe up any spills.'),
+      J('Dish area', 'Once all dishes are washed and put away, clean down with hot soapy water.'),
+      J('Sweep and mop cold room', 'Must be done every day.'),
+      J('Sweep and mop floors'),
+      J('Rubbish and cardboard'),
+      J('Write prep list'),
+
+      H('Close down — front counter'),
+      J('Front counter', 'Wipe over the counter with spray and wipe. Clean the display fridge glass.'),
+      J('Furniture', 'Wipe over the furniture with a clean cloth using spray and wipe. Bring it in.'),
+      J('Fill drinks fridge', 'Remove every crate from the cold room, fill the drinks fridge and tidy.'),
+      J('Fill salt shakers', 'Refill all salt shakers, the sugar shaker and so on.'),
+      J('Clean salt shaker tray', 'Change the salt shaker tray.'),
+      J('Empty bin under front counter', 'Empty the bin and clean up any paper that missed it.'),
+
+      H('Supervisor'),
+      J('Supervisor check list', 'Check the cleaning has been done properly and that every item on this list is done.'),
+      J('Out of stock and anything the manager should know', 'Have you told the manager about any out of stock items or important matters?'),
+
+      H('Weekly jobs'),
+      J('Leave tea towels and mats outside', '', MON),
+      J('Clean shelves under packing station', 'Remove all items from both benches under the packing station. Use hot soapy water.', MON),
+      J('Water the plants', 'Water the plants, please!', TUE),
+      J('Clean shelf under grill', '', SUN),
+      J('Dump and scrub fryers', 'Pump the oil from the crumbs fryer into the used oil vat. Drain the batter fryer oil into the filter.', MON_SAT),
+      J('Burger fridge', 'Empty food items to the cold room. Wipe out food particles and scrape ice from the sides.', SAT),
+      J('Clean under fridges', 'Move the two central benches and thoroughly clean the floor underneath.', SAT),
+      J('Empty and clean hot box', 'Remove the trays and put them through the dishwasher. Wipe inside and outside.', SAT),
+    ];
   }
 
   // ── Surfaces ──────────────────────────────────
