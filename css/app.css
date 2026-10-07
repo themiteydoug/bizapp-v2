@@ -107,12 +107,12 @@ body {
      content sits fully below the status bar in standalone (home-screen) mode.
      (With border-box, baking the inset into a fixed height squashed the bar.) */
   /* The inset alone puts the title hard against the status bar, where iOS
-     fades its own gradient over the top of it. A few px of clearance keeps
-     the name clear of it. */
-  height: calc(var(--header-h) + env(safe-area-inset-top, 0px) + 8px);
+     fades its own gradient over the top of it and the name reads as blurred.
+     16px of clearance below the inset keeps it clear of the fade. */
+  height: calc(var(--header-h) + env(safe-area-inset-top, 0px) + 16px);
   background: var(--green-900);
   flex-shrink: 0;
-  padding-top: calc(env(safe-area-inset-top, 0px) + 8px);
+  padding-top: calc(env(safe-area-inset-top, 0px) + 16px);
   z-index: 10;
 }
 
