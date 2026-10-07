@@ -84,6 +84,8 @@ const SquareAPI = (() => {
   async function fetchTakingsReal(dateStr) {
     const startAt = dateStr + 'T00:00:00+10:00';
     const endAt   = dateStr + 'T23:59:59+10:00';
+    // _trim: the proxy strips each order down to the fields used below. A day's
+    // orders come back as a fraction of the size with identical figures.
     const data = await proxyFetch('/orders/search', 'POST', {
       query: {
         filter: {
@@ -91,7 +93,7 @@ const SquareAPI = (() => {
         },
       },
       limit: 500,
-    });
+    }, { _trim: 1 });
     // Square "Total Sales"/"Total payments collected" excludes CANCELLED orders
     // (voided payments) but DOES include paid OPEN orders (e.g. delivery via
     // "Other"). Refunds are netted at the weekly level, not here.
@@ -122,6 +124,7 @@ const SquareAPI = (() => {
       begin_time: weekStart + 'T00:00:00+10:00',
       end_time:   weekEnd   + 'T23:59:59+10:00',
       limit: 100,
+      _trim: 1,
     });
     const refunds = (data.refunds || []).filter(r => r.status === 'COMPLETED');
     const sum = list => list.reduce((s, r) => s + (r.amount_money?.amount || 0) / 100, 0);
@@ -143,6 +146,7 @@ const SquareAPI = (() => {
         end_time:   weekEnd   + 'T23:59:59+10:00',
         sort_order: 'ASC',
         limit: 100,
+        _trim: 1,
       };
       if (cursor) params.cursor = cursor;
       const data = await proxyFetch('/payments', 'GET', null, params);
@@ -168,7 +172,7 @@ const SquareAPI = (() => {
         },
       },
       limit: 200,
-    });
+    }, { _trim: 1 });
     const timecards = (data.timecards || []).filter(t => !t.deleted);
     const adjustments = Store.getTsAdjustments();   // manager hour overrides
     const byEmployee = {};
@@ -378,6 +382,7 @@ const SquareAPI = (() => {
       begin_time: beginTime,
       end_time:   endTime,
       limit:      250,
+      _trim:      1,
     });
     const payouts = listData.payouts || [];
     if (!payouts.length) return { cash: 0, card: 0, refunds: 0, payoutCount: 0, entryCount: 0 };
@@ -385,7 +390,7 @@ const SquareAPI = (() => {
     // Fetch entries for all payouts in parallel
     const entryResults = await Promise.all(
       payouts.map(p =>
-        proxyFetch(`/payouts/${p.id}/payout-entries`, 'GET', null, { limit: 250 })
+        proxyFetch(`/payouts/${p.id}/payout-entries`, 'GET', null, { limit: 250, _trim: 1 })
           .then(d => d.payout_entries || [])
           .catch(() => [])
       )
@@ -431,7 +436,7 @@ const SquareAPI = (() => {
       };
       if (cursor) body.cursor = cursor;
 
-      const data = await proxyFetch('/labor/scheduled-shifts/search', 'POST', body);
+      const data = await proxyFetch('/labor/scheduled-shifts/search', 'POST', body, { _trim: 1 });
 
       (data.scheduled_shifts || []).forEach(s => {
         const d = s.published_shift_details;
