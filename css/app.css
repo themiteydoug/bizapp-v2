@@ -1770,14 +1770,37 @@ select.field-input { appearance: none; background-image: url("data:image/svg+xml
   flex: none; width: 32px; height: 32px; border-radius: 50%; border: none;
   background: transparent; color: var(--red-500); font-size: 20px; cursor: pointer;
 }
-.clean-days { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
+/* Repeat picker — the iOS pattern: a labelled row with the schedule read back
+   on the right, then seven round day buttons running Monday to Sunday. */
+.clean-repeat {
+  background: var(--surface-2); border-radius: var(--r-md, 12px);
+  padding: 11px 13px 12px; margin-top: 11px;
+}
+.clean-repeat-head {
+  display: flex; align-items: baseline; justify-content: space-between; gap: 12px;
+  font-size: 13.5px; font-weight: 600; color: var(--text-1);
+  padding-bottom: 9px; border-bottom: 1px solid var(--border);
+}
+.clean-repeat-val { font-weight: 550; color: var(--text-3); text-align: right; }
+.clean-circles {
+  display: flex; justify-content: space-between; gap: 6px; margin: 11px 0 2px;
+}
+.clean-circle {
+  flex: 1 1 0; min-width: 0; aspect-ratio: 1 / 1; max-width: 46px;
+  border-radius: 50%; border: none; cursor: pointer;
+  background: var(--border); color: var(--text-2);
+  font-family: var(--font); font-size: 15px; font-weight: 600;
+  display: flex; align-items: center; justify-content: center;
+  transition: background .12s, color .12s;
+}
+.clean-circle.on { background: var(--green-600); color: #fff; }
+.clean-repeat-opts { display: flex; gap: 8px; margin-top: 11px; }
 .clean-chip {
-  font-family: var(--font); font-size: 12px; font-weight: 650;
-  padding: 7px 11px; border-radius: 999px; cursor: pointer;
+  font-family: var(--font); font-size: 12.5px; font-weight: 650;
+  padding: 8px 15px; border-radius: 999px; cursor: pointer;
   border: 1px solid var(--border-md); background: transparent; color: var(--text-3);
 }
 .clean-chip.on { border-color: var(--green-500); background: rgba(47,192,141,.14); color: var(--green-400); }
-.clean-sched { font-size: 11px; color: var(--text-3); margin-top: 8px; }
 
 /* Full-screen view, opened from the PIN pad */
 #clean-overlay {
