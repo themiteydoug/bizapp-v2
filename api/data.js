@@ -26,10 +26,17 @@ const PREFIX      = 'pcw:';
 const COLLECTIONS = ['invoices', 'cashRecs', 'tsPushes'];      // Redis hashes
 const SINGLETONS  = ['settings', 'tsAdjustments', 'staff', 'supplierFingerprints', 'tombstones']; // Redis string keys
 
+// Bumped by every write. Pollers read this instead of re-downloading the whole
+// snapshot each time — the snapshot grows with every invoice and cash count, so
+// polling it outright cost hundreds of megabytes a day per open device.
+const REV_KEY = PREFIX + 'rev';
+
 function cors(res) {
   res.setHeader('Access-Control-Allow-Origin', ALLOWED_ORIGIN);
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+  // Shared live data — never let a CDN or browser serve a stale copy.
+  res.setHeader('Cache-Control', 'no-store, max-age=0');
 }
 
 // Run a single Redis command (array) or a pipeline (array of arrays).
@@ -72,16 +79,27 @@ module.exports = async (req, res) => {
       return res.status(200).json({ id: req.query.photo, dataUrl: out?.result || null });
     }
 
+    // ── Has anything changed? A few bytes, asked every poll ──
+    if (req.method === 'GET' && req.query.rev) {
+      const out = await kv(['GET', REV_KEY]);
+      return res.status(200).json({ rev: Number(out?.result) || 0 });
+    }
+
     // ── Pull the full shared snapshot ──
     if (req.method === 'GET') {
       const cmds = [
+        ['GET', REV_KEY],          // read FIRST — see the note below
         ...COLLECTIONS.map(c => ['HGETALL', PREFIX + c]),
         ...SINGLETONS.map(k => ['GET', PREFIX + k]),
       ];
+      // Reading the revision ahead of the data means a write landing mid-pipeline
+      // leaves us with an old revision and new data, so the next poll pulls again
+      // — wasteful but harmless. The other order would pair a new revision with
+      // old data and that change would never be seen.
       const out = await kv(cmds);   // pipeline → [{result}, ...]
-      const snap = {};
+      const snap = { rev: Number(out[0]?.result) || 0 };
       COLLECTIONS.forEach((c, i) => {
-        const flat = out[i]?.result || [];   // [field, val, field, val, ...]
+        const flat = out[i + 1]?.result || [];   // [field, val, field, val, ...]
         const arr = [];
         for (let j = 1; j < flat.length; j += 2) {
           const parsed = safeParse(flat[j]);
@@ -90,7 +108,7 @@ module.exports = async (req, res) => {
         snap[c] = arr;
       });
       SINGLETONS.forEach((k, i) => {
-        snap[k] = safeParse(out[COLLECTIONS.length + i]?.result);
+        snap[k] = safeParse(out[COLLECTIONS.length + 1 + i]?.result);
       });
       return res.status(200).json(snap);
     }
@@ -100,31 +118,39 @@ module.exports = async (req, res) => {
       const body = typeof req.body === 'string' ? JSON.parse(req.body) : (req.body || {});
       const op = body.op;
 
+      // Every write runs with an INCR on the revision, so a poller elsewhere
+      // notices within one tick without pulling anything.
+      const write = async cmd => {
+        const out = await kv([cmd, ['INCR', REV_KEY]]);
+        return Number(out[1]?.result) || 0;
+      };
+
       if (op === 'putItem') {
         if (!COLLECTIONS.includes(body.coll) || body.id == null || body.value == null) {
           return res.status(400).json({ error: 'bad putItem' });
         }
-        await kv(['HSET', PREFIX + body.coll, String(body.id), JSON.stringify(body.value)]);
-        return res.status(200).json({ ok: true });
+        const rev = await write(['HSET', PREFIX + body.coll, String(body.id), JSON.stringify(body.value)]);
+        return res.status(200).json({ ok: true, rev });
       }
 
       if (op === 'putKey') {
         if (!SINGLETONS.includes(body.key) || body.value == null) {
           return res.status(400).json({ error: 'bad putKey' });
         }
-        await kv(['SET', PREFIX + body.key, JSON.stringify(body.value)]);
-        return res.status(200).json({ ok: true });
+        const rev = await write(['SET', PREFIX + body.key, JSON.stringify(body.value)]);
+        return res.status(200).json({ ok: true, rev });
       }
 
       if (op === 'delItem') {
         if (!COLLECTIONS.includes(body.coll) || body.id == null) {
           return res.status(400).json({ error: 'bad delItem' });
         }
-        await kv(['HDEL', PREFIX + body.coll, String(body.id)]);
-        return res.status(200).json({ ok: true });
+        const rev = await write(['HDEL', PREFIX + body.coll, String(body.id)]);
+        return res.status(200).json({ ok: true, rev });
       }
 
-      // Invoice photos live in their own hash, fetched by id (never in the snapshot).
+      // Invoice photos live in their own hash, fetched by id (never in the
+      // snapshot), so they don't move the revision — nothing polls for them.
       if (op === 'putPhoto') {
         if (body.id == null || body.value == null) return res.status(400).json({ error: 'bad putPhoto' });
         await kv(['HSET', PREFIX + 'invoicePhotos', String(body.id), String(body.value)]);
