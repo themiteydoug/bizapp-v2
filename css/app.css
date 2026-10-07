@@ -61,7 +61,17 @@
 
 /* Base */
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-html { font-size: 16px; -webkit-text-size-adjust: 100%; }
+html {
+  font-size: 16px;
+  -webkit-text-size-adjust: 100%;
+  /* Whatever the system paints outside the laid-out page — the strip behind the
+     status bar, the strip by the home indicator, any overscroll — comes from the
+     root background, and with none set here it fell back to body's light grey.
+     That is the white band above the header. A hard-stop gradient gives the top
+     half the header's green and the bottom half the nav's surface colour; the
+     body covers the join, so only the two end strips are ever seen. */
+  background: linear-gradient(var(--green-900) 0 50%, var(--surface) 50% 100%);
+}
 body {
   font-family: var(--font);
   background: var(--bg);

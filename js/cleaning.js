@@ -170,8 +170,18 @@ const CleaningModule = (() => {
         </div>
         <div class="clean-picker" id="pick-${esc(it.id)}" hidden></div>`);
     });
-    const rows = parts.length ? parts.join('')
+    // Nothing set up at all reads very differently from nothing due today —
+    // the first is a job for the manager, the second is just a quiet day.
+    const noJobsAtAll = !items.some(it => !isHeading(it));
+    const emptyMsg = noJobsAtAll
+      ? (Auth.isManager()
+          ? `<div class="clean-empty">
+               No cleaning jobs set up yet.
+               <button class="primary-btn" id="clean-empty-setup" style="width:auto;margin-top:14px;padding:12px 20px">Set up the list</button>
+             </div>`
+          : '<div class="clean-empty">No cleaning jobs have been set up yet.<br>Ask a manager to add them.</div>')
       : `<div class="clean-empty">No jobs scheduled for ${isToday ? 'today' : 'this day'}.</div>`;
+    const rows = parts.length ? parts.join('') : emptyMsg;
 
     host.innerHTML = `
       <div class="clean-head">
@@ -191,6 +201,7 @@ const CleaningModule = (() => {
       ${host.id === 'clean-overlay-host' ? '<button class="clean-done-btn">Close</button>' : ''}`;
 
     host.querySelector('#clean-manage')?.addEventListener('click', () => { editing = true; render(host); });
+    host.querySelector('#clean-empty-setup')?.addEventListener('click', () => { editing = true; render(host); });
     host.querySelector('#clean-prev')?.addEventListener('click', () => { viewDate = shiftDate(date, -1); render(host); });
     host.querySelector('#clean-next')?.addEventListener('click', () => {
       const next = shiftDate(date, 1);
