@@ -177,13 +177,14 @@ const CleaningModule = (() => {
     // Nothing set up at all reads very differently from nothing due today —
     // the first is a job for the manager, the second is just a quiet day.
     const noJobsAtAll = !items.some(it => !isHeading(it));
+    const canManage = Auth.isLoggedIn() && host.id !== 'clean-overlay-host';
     const emptyMsg = noJobsAtAll
-      ? (Auth.isManager()
+      ? (canManage
           ? `<div class="clean-empty">
                No cleaning jobs set up yet.
                <button class="primary-btn" id="clean-empty-setup" style="width:auto;margin-top:14px;padding:12px 20px">Set up the list</button>
              </div>`
-          : '<div class="clean-empty">No cleaning jobs have been set up yet.<br>Ask a manager to add them.</div>')
+          : '<div class="clean-empty">No cleaning jobs have been set up yet.<br>Sign in with a PIN to add them.</div>')
       : `<div class="clean-empty">No jobs scheduled for ${isToday ? 'today' : 'this day'}.</div>`;
     const rows = parts.length ? parts.join('') : emptyMsg;
 
@@ -197,7 +198,7 @@ const CleaningModule = (() => {
           </div>
           <button class="clean-step" id="clean-next" ${isToday ? 'disabled' : ''} aria-label="Next day">›</button>
         </div>
-        ${Auth.isManager() ? '<button class="secondary-btn clean-manage" id="clean-manage">Manage jobs</button>' : ''}
+        ${canManage ? '<button class="secondary-btn clean-manage" id="clean-manage">Manage jobs</button>' : ''}
       </div>
       <div class="clean-progress"><span style="width:${jobs.length ? Math.round(doneCount / jobs.length * 100) : 0}%"></span></div>
       <div class="clean-list">${rows}</div>
