@@ -61,7 +61,8 @@ const Auth = (() => {
         <div style="
           position:fixed;inset:0;background:#0A2A1F;
           display:flex;flex-direction:column;align-items:center;
-          justify-content:center;gap:20px;padding:32px;z-index:999;
+          justify-content:center;gap:20px;z-index:999;
+          padding:calc(env(safe-area-inset-top, 0px) + 72px) 32px calc(env(safe-area-inset-bottom, 0px) + 24px);
         ">
           <img src="icons/icon-192.png" alt="PCW" style="width:96px;height:96px;border-radius:20px;object-fit:cover;box-shadow:0 6px 16px rgba(0,0,0,0.35)">
           <div style="text-align:center">
@@ -90,7 +91,6 @@ const Auth = (() => {
             border:1px solid rgba(255,255,255,0.22);background:rgba(255,255,255,0.06);
             color:#fff;font-size:15px;font-weight:600;font-family:inherit;cursor:pointer;
           ">Cleaning list</button>
-          <div style="font-size:12px;color:#7FBFA8">No PIN needed</div>
         </div>
       `;
       document.body.appendChild(screen);
