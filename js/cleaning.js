@@ -311,8 +311,7 @@ const CleaningModule = (() => {
       <div class="clean-edit-row ${selected ? 'selected' : ''}" data-row="${i}">
         ${arrows}
         <input class="clean-input" value="${esc(j.title)}" data-title="${i}" placeholder="Job name">
-        <span class="clean-when">${esc(scheduleLabel(j))}</span>
-        <button class="clean-expand" data-expand="${i}" aria-expanded="${!!selected}" aria-label="Description and repeat">${selected ? '⌄' : '›'}</button>
+        <button class="clean-details-btn" data-expand="${i}" aria-expanded="${!!selected}">Details ${selected ? '⌄' : '›'}</button>
         ${del}
       </div>`;
   }

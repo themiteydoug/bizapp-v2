@@ -1474,21 +1474,24 @@ select.field-input { appearance: none; background-image: url("data:image/svg+xml
   body.focus-view #page-clean .page-scroll { max-width: 1000px; }
   body.focus-view #page-clean .clean-list { max-width: 720px; }
 
-  .clean-editor {
+  /* Scoped to the page, not just .clean-editor — the base rules for these
+     classes sit further down the file, so an unscoped rule here would lose on
+     source order and the detail pane would drop below the whole list. */
+  body.focus-view #page-clean .clean-editor {
     display: grid;
     grid-template-columns: minmax(0, 1fr) 360px;
     gap: 20px;
     align-items: start;
   }
-  .clean-edit-detail {
+  body.focus-view #page-clean .clean-edit-detail {
     position: sticky; top: 0;
     background: var(--surface); border: 1px solid var(--border);
     border-radius: var(--r-lg); padding: 14px 15px;
   }
-  .clean-edit-detail .clean-detail {
+  body.focus-view #page-clean .clean-edit-detail .clean-detail {
     background: none; border: none; padding: 0; margin: 0;
   }
-  .clean-edit-detail .clean-detail .clean-repeat { background: var(--surface-2); }
+  body.focus-view #page-clean .clean-edit-detail .clean-repeat { background: var(--surface-2); }
 
   /* The roster is the point of the Staff page on a big screen */
   #staff-roster-wrap { display: block; }
@@ -1947,14 +1950,14 @@ select.field-input { appearance: none; background-image: url("data:image/svg+xml
 }
 .clean-input.is-heading-input::placeholder { color: rgba(255,255,255,.45); }
 
-.clean-when {
-  flex: none; font-size: 11px; font-weight: 600; color: var(--text-3);
-  white-space: nowrap; max-width: 40%; overflow: hidden; text-overflow: ellipsis;
+.clean-details-btn {
+  flex: none; display: flex; align-items: center; gap: 5px;
+  height: 28px; padding: 0 11px; border-radius: 999px; cursor: pointer;
+  border: 1px solid var(--border-md); background: var(--surface-2);
+  color: var(--text-3); font-family: var(--font); font-size: 11.5px; font-weight: 650;
 }
-.clean-expand {
-  flex: none; width: 28px; height: 28px; border-radius: 50%; border: none;
-  background: var(--surface-2); color: var(--text-3);
-  font-size: 14px; line-height: 1; cursor: pointer; font-family: var(--font);
+.clean-edit-row.selected .clean-details-btn {
+  border-color: var(--green-500); background: rgba(47,192,141,.14); color: var(--green-400);
 }
 .clean-del {
   flex: none; width: 28px; height: 28px; border-radius: 50%; border: none;
