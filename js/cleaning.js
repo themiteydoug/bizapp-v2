@@ -42,6 +42,10 @@ const CleaningModule = (() => {
   let staffCache = null;       // { date, list } — tonight's names, fetched once
   let pickerFor = null;        // job id whose name picker is open
   let viewDate = null;         // the day on screen; null means today
+  let editSelected = null;     // the one job whose description and repeat are open
+
+  // Wide enough for the list and the job's settings side by side.
+  const deskMQ = window.matchMedia('(min-width: 1080px)');
 
   // ── Dates ─────────────────────────────────────
 
@@ -256,63 +260,98 @@ const CleaningModule = (() => {
   }
 
   // ── Manager setup ─────────────────────────────
+  // Rows collapse to the job name, so the list stays short enough to reorder
+  // and a heading reads as a heading. The description and repeat picker open
+  // for one job at a time: beside the list on a wide screen, under the row on
+  // a phone.
+
+  function detailHtml(j, i) {
+    return `
+      <div class="clean-detail">
+        <label class="clean-detail-label">Description</label>
+        <textarea class="clean-notes-input" rows="3" data-notes="${i}"
+          placeholder="How to do it (optional)">${esc(j.notes || '')}</textarea>
+        <div class="clean-repeat">
+          <div class="clean-repeat-head">
+            <span>Repeat</span>
+            <span class="clean-repeat-val">${esc(scheduleLabel(j))}</span>
+          </div>
+          <div class="clean-circles">
+            ${DAYS.map(d => `
+              <button class="clean-circle ${(j.days || []).includes(d.i) ? 'on' : ''}"
+                data-day="${i}:${d.i}" title="${d.short}" aria-label="${d.short}"
+                aria-pressed="${(j.days || []).includes(d.i)}">${d.letter}</button>`).join('')}
+          </div>
+          <div class="clean-repeat-opts">
+            <button class="clean-chip ${j.daily ? 'on' : ''}" data-daily="${i}" aria-pressed="${!!j.daily}">Daily</button>
+            <button class="clean-chip ${j.monthly ? 'on' : ''}" data-monthly="${i}" aria-pressed="${!!j.monthly}">Monthly</button>
+          </div>
+        </div>
+      </div>`;
+  }
+
+  function rowHtml(j, i, last, selected) {
+    const arrows = `
+      <span class="clean-move">
+        <button class="clean-arrow" data-up="${i}" ${i === 0 ? 'disabled' : ''} aria-label="Move up">↑</button>
+        <button class="clean-arrow" data-down="${i}" ${i === last ? 'disabled' : ''} aria-label="Move down">↓</button>
+      </span>`;
+    const del = `<button class="clean-del" data-del="${i}" aria-label="Remove">×</button>`;
+
+    if (isHeading(j)) {
+      return `
+        <div class="clean-edit-row is-heading" data-row="${i}">
+          ${arrows}
+          <input class="clean-input is-heading-input" value="${esc(j.title)}" data-title="${i}"
+            placeholder="Heading — e.g. Front counter">
+          ${del}
+        </div>`;
+    }
+    return `
+      <div class="clean-edit-row ${selected ? 'selected' : ''}" data-row="${i}">
+        ${arrows}
+        <input class="clean-input" value="${esc(j.title)}" data-title="${i}" placeholder="Job name">
+        <span class="clean-when">${esc(scheduleLabel(j))}</span>
+        <button class="clean-expand" data-expand="${i}" aria-expanded="${!!selected}" aria-label="Description and repeat">${selected ? '⌄' : '›'}</button>
+        ${del}
+      </div>`;
+  }
 
   function renderEditor(host) {
-    const jobs = Store.getCleanJobs();
+    const items = Store.getCleanJobs();
+    const wide = deskMQ.matches;
+    const selIdx = items.findIndex(j => j.id === editSelected && !isHeading(j));
+    const last = items.length - 1;
+
+    const rows = items.map((j, i) => {
+      const selected = i === selIdx;
+      // On a phone the detail drops in under its own row; on a wide screen it
+      // lives in the pane beside the list instead.
+      return rowHtml(j, i, last, selected) + (selected && !wide ? detailHtml(j, i) : '');
+    }).join('');
+
     host.innerHTML = `
       <div class="clean-head">
         <div>
           <div class="clean-day">Cleaning jobs</div>
-          <div class="clean-count">${jobs.filter(j => !isHeading(j)).length} jobs · ${jobs.filter(isHeading).length} headings</div>
+          <div class="clean-count">${items.filter(j => !isHeading(j)).length} jobs · ${items.filter(isHeading).length} headings</div>
         </div>
         <button class="primary-btn clean-manage" id="clean-done">Done</button>
       </div>
-      <div class="clean-list">
-        ${jobs.map((j, i) => isHeading(j) ? `
-          <div class="clean-edit is-heading" data-idx="${i}">
-            <div class="clean-edit-top">
-              <span class="clean-move">
-                <button class="clean-arrow" data-up="${i}" ${i === 0 ? 'disabled' : ''} aria-label="Move up">↑</button>
-                <button class="clean-arrow" data-down="${i}" ${i === jobs.length - 1 ? 'disabled' : ''} aria-label="Move down">↓</button>
-              </span>
-              <input class="clean-input is-heading-input" value="${esc(j.title)}" data-title="${i}" placeholder="Heading — e.g. Front counter">
-              <button class="clean-del" data-del="${i}" title="Remove heading" aria-label="Remove heading">×</button>
-            </div>
-          </div>` : `
-          <div class="clean-edit" data-idx="${i}">
-            <div class="clean-edit-top">
-              <span class="clean-move">
-                <button class="clean-arrow" data-up="${i}" ${i === 0 ? 'disabled' : ''} aria-label="Move up">↑</button>
-                <button class="clean-arrow" data-down="${i}" ${i === jobs.length - 1 ? 'disabled' : ''} aria-label="Move down">↓</button>
-              </span>
-              <input class="clean-input" value="${esc(j.title)}" data-title="${i}" placeholder="Job name">
-              <button class="clean-del" data-del="${i}" title="Remove job" aria-label="Remove job">×</button>
-            </div>
-            <textarea class="clean-notes-input" rows="2" data-notes="${i}"
-              placeholder="How to do it (optional)">${esc(j.notes || '')}</textarea>
-            <div class="clean-repeat">
-              <div class="clean-repeat-head">
-                <span>Repeat</span>
-                <span class="clean-repeat-val">${esc(scheduleLabel(j))}</span>
-              </div>
-              <div class="clean-circles">
-                ${DAYS.map(d => `
-                  <button class="clean-circle ${(j.days || []).includes(d.i) ? 'on' : ''}"
-                    data-day="${i}:${d.i}" title="${d.short}" aria-label="${d.short}"
-                    aria-pressed="${(j.days || []).includes(d.i)}">${d.letter}</button>`).join('')}
-              </div>
-              <div class="clean-repeat-opts">
-                <button class="clean-chip ${j.daily ? 'on' : ''}" data-daily="${i}" aria-pressed="${!!j.daily}">Daily</button>
-                <button class="clean-chip ${j.monthly ? 'on' : ''}" data-monthly="${i}" aria-pressed="${!!j.monthly}">Monthly</button>
-              </div>
-            </div>
-          </div>`).join('')}
-      </div>
-      <div class="clean-add-row">
-        <button class="secondary-btn" id="clean-add">+ Add a job</button>
-        <button class="secondary-btn" id="clean-add-head">+ Add a heading</button>
-      </div>
-      ${jobs.length ? '' : '<button class="primary-btn full-btn" id="clean-seed" style="margin-top:10px">Start from the Spotted Cod list</button>'}`;
+      <div class="clean-editor">
+        <div class="clean-edit-list">
+          ${rows}
+          <div class="clean-add-row">
+            <button class="secondary-btn" id="clean-add">+ Add a job</button>
+            <button class="secondary-btn" id="clean-add-head">+ Add a heading</button>
+          </div>
+          ${items.length ? '' : '<button class="primary-btn full-btn" id="clean-seed" style="margin-top:10px">Start from the Spotted Cod list</button>'}
+        </div>
+        ${wide ? `<div class="clean-edit-detail">${
+          selIdx >= 0 ? detailHtml(items[selIdx], selIdx)
+                      : '<div class="clean-detail-empty">Pick a job on the left to set its description and the days it runs.</div>'
+        }</div>` : ''}
+      </div>`;
 
     const jobsNow = () => Store.getCleanJobs();
 
@@ -320,9 +359,12 @@ const CleaningModule = (() => {
 
     host.querySelector('#clean-add')?.addEventListener('click', () => {
       const list = jobsNow();
-      list.push({ id: newId(), kind: 'job', title: '', notes: '', daily: true, days: [], monthly: false, active: true });
+      const job = { id: newId(), kind: 'job', title: '', notes: '', daily: true, days: [], monthly: false, active: true };
+      list.push(job);
       Store.saveCleanJobs(list);
+      editSelected = job.id;                     // open it straight away to name it
       renderEditor(host);
+      host.querySelector(`[data-title="${list.length - 1}"]`)?.focus();
     });
 
     host.querySelector('#clean-add-head')?.addEventListener('click', () => {
@@ -330,6 +372,7 @@ const CleaningModule = (() => {
       list.push({ id: newId(), kind: 'heading', title: '' });
       Store.saveCleanJobs(list);
       renderEditor(host);
+      host.querySelector(`[data-title="${list.length - 1}"]`)?.focus();
     });
 
     host.querySelector('#clean-seed')?.addEventListener('click', () => {
@@ -337,6 +380,22 @@ const CleaningModule = (() => {
       Store.saveCleanJobs(starterList());
       renderEditor(host);
     });
+
+    // Open one job's detail. Clicking the row does it too, except on the parts
+    // that do something else.
+    const select = id => {
+      editSelected = (editSelected === id) ? null : id;
+      renderEditor(host);
+    };
+    host.querySelectorAll('[data-expand]').forEach(b => b.addEventListener('click', e => {
+      e.stopPropagation();
+      select(items[+b.dataset.expand]?.id);
+    }));
+    host.querySelectorAll('.clean-edit-row').forEach(row => row.addEventListener('click', e => {
+      if (e.target.closest('input, textarea, button')) return;
+      const j = items[+row.dataset.row];
+      if (j && !isHeading(j)) select(j.id);
+    }));
 
     host.querySelectorAll('[data-title]').forEach(inp => inp.addEventListener('change', () => {
       const list = jobsNow();
@@ -350,8 +409,20 @@ const CleaningModule = (() => {
       if (j) { j.notes = inp.value.trim(); Store.saveCleanJobs(list); }
     }));
 
+    host.querySelectorAll('[data-del]').forEach(b => b.addEventListener('click', e => {
+      e.stopPropagation();
+      const list = jobsNow();
+      const j = list[+b.dataset.del];
+      if (!j) return;
+      if (!confirm(`Remove "${j.title || (isHeading(j) ? 'this heading' : 'this job')}" from the list?`)) return;
+      if (j.id === editSelected) editSelected = null;
+      list.splice(+b.dataset.del, 1);
+      Store.saveCleanJobs(list);
+      renderEditor(host);
+    }));
+
     // Reorder with arrows rather than dragging — this gets used on a phone,
-    // where a long-press drag through a list this length is a fight.
+    // where a long-press drag through forty items is a fight.
     const move = (from, to) => {
       const list = jobsNow();
       if (to < 0 || to >= list.length) return;
@@ -360,19 +431,9 @@ const CleaningModule = (() => {
       renderEditor(host);
     };
     host.querySelectorAll('[data-up]').forEach(b =>
-      b.addEventListener('click', () => move(+b.dataset.up, +b.dataset.up - 1)));
+      b.addEventListener('click', e => { e.stopPropagation(); move(+b.dataset.up, +b.dataset.up - 1); }));
     host.querySelectorAll('[data-down]').forEach(b =>
-      b.addEventListener('click', () => move(+b.dataset.down, +b.dataset.down + 1)));
-
-    host.querySelectorAll('[data-del]').forEach(b => b.addEventListener('click', () => {
-      const list = jobsNow();
-      const j = list[+b.dataset.del];
-      if (!j) return;
-      if (!confirm(`Remove "${j.title || (isHeading(j) ? 'this heading' : 'this job')}" from the list?`)) return;
-      list.splice(+b.dataset.del, 1);
-      Store.saveCleanJobs(list);
-      renderEditor(host);
-    }));
+      b.addEventListener('click', e => { e.stopPropagation(); move(+b.dataset.down, +b.dataset.down + 1); }));
 
     // Daily and specific days are alternatives — choosing one clears the other,
     // so the schedule can't end up saying two things at once.
@@ -475,9 +536,17 @@ const CleaningModule = (() => {
 
   function init() {
     editing = false;
+    editSelected = null;
     viewDate = null;
     render(document.getElementById('clean-host'));
   }
+
+  // Turning an iPad mid-edit moves the open job's settings between the pane
+  // beside the list and the row itself, so the editor has to be redrawn.
+  deskMQ.addEventListener('change', () => {
+    const host = document.getElementById('clean-host');
+    if (editing && host) renderEditor(host);
+  });
 
   function isOverlayOpen() {
     return document.getElementById('clean-overlay')?.style.display === 'flex';

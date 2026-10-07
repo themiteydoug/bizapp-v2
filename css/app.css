@@ -1457,6 +1457,29 @@ select.field-input { appearance: none; background-image: url("data:image/svg+xml
     box-shadow: inset 3px 0 0 var(--green-500);
   }
 
+  /* ── Cleaning on a wide screen ───────────────────────────────────────
+     The page was running the full width of a monitor for a list of job
+     names. Capped, and in setup the list keeps the left while the open
+     job's settings sit beside it. */
+  body.focus-view #page-clean .page-scroll { max-width: 1000px; }
+  body.focus-view #page-clean .clean-list { max-width: 720px; }
+
+  .clean-editor {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 360px;
+    gap: 20px;
+    align-items: start;
+  }
+  .clean-edit-detail {
+    position: sticky; top: 0;
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: var(--r-lg); padding: 14px 15px;
+  }
+  .clean-edit-detail .clean-detail {
+    background: none; border: none; padding: 0; margin: 0;
+  }
+  .clean-edit-detail .clean-detail .clean-repeat { background: var(--surface-2); }
+
   /* The roster is the point of the Staff page on a big screen */
   #staff-roster-wrap { display: block; }
   body.focus-view #page-staff .page-scroll { display: block; }
@@ -1870,22 +1893,85 @@ select.field-input { appearance: none; background-image: url("data:image/svg+xml
 }
 .clean-row.is-done .clean-notes { display: none; }
 
-/* Setup: reorder arrows, notes field, heading rows */
+/* ── Setup: a short list you can reorder, settings for one job at a time ── */
+.clean-editor { display: block; }
+.clean-edit-list { display: flex; flex-direction: column; gap: 6px; }
+
+.clean-edit-row {
+  display: flex; align-items: center; gap: 9px;
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: var(--r-md, 12px); padding: 7px 9px;
+}
+.clean-edit-row.selected { border-color: var(--green-500); box-shadow: inset 3px 0 0 var(--green-500); }
+
+/* Headings carry the header's own colour, so a glance down the list shows
+   where each block starts. */
+.clean-edit-row.is-heading {
+  background: var(--green-900); border-color: var(--green-900);
+  margin-top: 10px;
+}
+.clean-edit-row.is-heading:first-child { margin-top: 0; }
+.clean-edit-row.is-heading .clean-arrow {
+  background: rgba(255,255,255,.12); border-color: rgba(255,255,255,.2); color: #fff;
+}
+.clean-edit-row.is-heading .clean-del { color: #F9AAAA; }
+
 .clean-move { display: flex; flex-direction: column; gap: 2px; flex: none; }
 .clean-arrow {
-  width: 26px; height: 20px; border-radius: 5px; cursor: pointer;
+  width: 26px; height: 19px; border-radius: 5px; cursor: pointer;
   border: 1px solid var(--border-md); background: var(--surface-2);
   color: var(--text-2); font-size: 11px; line-height: 1; font-family: var(--font);
 }
 .clean-arrow:disabled { opacity: .25; cursor: default; }
+
+.clean-input {
+  flex: 1; min-width: 0; height: 36px; padding: 0 10px;
+  border: 1px solid transparent; border-radius: var(--r-sm);
+  background: transparent; color: var(--text-1);
+  font-family: var(--font); font-size: 14px;
+}
+.clean-input:focus { outline: none; border-color: var(--green-400); background: var(--surface-2); }
+.clean-input.is-heading-input {
+  color: #fff; font-weight: 700; text-transform: uppercase;
+  letter-spacing: .06em; font-size: 12.5px;
+}
+.clean-input.is-heading-input::placeholder { color: rgba(255,255,255,.45); }
+
+.clean-when {
+  flex: none; font-size: 11px; font-weight: 600; color: var(--text-3);
+  white-space: nowrap; max-width: 40%; overflow: hidden; text-overflow: ellipsis;
+}
+.clean-expand {
+  flex: none; width: 28px; height: 28px; border-radius: 50%; border: none;
+  background: var(--surface-2); color: var(--text-3);
+  font-size: 14px; line-height: 1; cursor: pointer; font-family: var(--font);
+}
+.clean-del {
+  flex: none; width: 28px; height: 28px; border-radius: 50%; border: none;
+  background: transparent; color: var(--red-500); font-size: 19px; cursor: pointer;
+}
+
+/* The open job's settings — under its row on a phone, in the pane on a desktop */
+.clean-detail {
+  background: var(--surface-2); border: 1px solid var(--border);
+  border-radius: var(--r-md, 12px); padding: 12px 13px; margin: -2px 0 4px;
+}
+.clean-detail-label {
+  display: block; font-size: 11px; font-weight: 650; color: var(--text-3);
+  text-transform: uppercase; letter-spacing: .04em; margin-bottom: 6px;
+}
+.clean-detail-empty {
+  font-size: 12.5px; color: var(--text-3); text-align: center;
+  padding: 30px 18px; line-height: 1.5;
+}
 .clean-notes-input {
-  width: 100%; margin-top: 9px; padding: 8px 10px; resize: vertical;
+  width: 100%; padding: 8px 10px; resize: vertical;
   border: 1px solid var(--border-md); border-radius: var(--r-sm);
-  background: var(--surface-2); color: var(--text-2);
+  background: var(--surface); color: var(--text-2);
   font-family: var(--font); font-size: 12.5px; line-height: 1.45;
 }
 .clean-notes-input:focus { outline: none; border-color: var(--green-400); }
-.clean-edit.is-heading { background: var(--surface-2); border-style: dashed; }
-.clean-input.is-heading-input { font-weight: 700; text-transform: uppercase; letter-spacing: .04em; font-size: 12.5px; }
-.clean-add-row { display: flex; gap: 8px; margin-top: 4px; }
+.clean-detail .clean-repeat { background: var(--surface); margin-top: 12px; }
+
+.clean-add-row { display: flex; gap: 8px; margin-top: 10px; }
 .clean-add-row .secondary-btn { flex: 1; }
