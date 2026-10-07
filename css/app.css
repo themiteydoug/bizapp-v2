@@ -1474,24 +1474,26 @@ select.field-input { appearance: none; background-image: url("data:image/svg+xml
   body.focus-view #page-clean .page-scroll { max-width: 1000px; }
   body.focus-view #page-clean .clean-list { max-width: 720px; }
 
-  /* Scoped to the page, not just .clean-editor — the base rules for these
-     classes sit further down the file, so an unscoped rule here would lose on
-     source order and the detail pane would drop below the whole list. */
-  body.focus-view #page-clean .clean-editor {
+  /* This is now the ONLY rule that sets .clean-editor's display anywhere in the
+     file. It used to be display:grid here and display:block at base level
+     further down — equal weight, later source order, so the grid never applied
+     and the detail pane rendered below the whole list instead of beside it.
+     Kept id-scoped so nothing added later can quietly outrank it either. */
+  #page-clean .clean-editor {
     display: grid;
     grid-template-columns: minmax(0, 1fr) 360px;
     gap: 20px;
     align-items: start;
   }
-  body.focus-view #page-clean .clean-edit-detail {
+  #page-clean .clean-edit-detail {
     position: sticky; top: 0;
     background: var(--surface); border: 1px solid var(--border);
     border-radius: var(--r-lg); padding: 14px 15px;
   }
-  body.focus-view #page-clean .clean-edit-detail .clean-detail {
+  #page-clean .clean-edit-detail .clean-detail {
     background: none; border: none; padding: 0; margin: 0;
   }
-  body.focus-view #page-clean .clean-edit-detail .clean-repeat { background: var(--surface-2); }
+  #page-clean .clean-edit-detail .clean-repeat { background: var(--surface-2); }
 
   /* The roster is the point of the Staff page on a big screen */
   #staff-roster-wrap { display: block; }
@@ -1907,7 +1909,6 @@ select.field-input { appearance: none; background-image: url("data:image/svg+xml
 .clean-row.is-done .clean-notes { display: none; }
 
 /* ── Setup: a short list you can reorder, settings for one job at a time ── */
-.clean-editor { display: block; }
 .clean-edit-list { display: flex; flex-direction: column; gap: 6px; }
 
 .clean-edit-row {
