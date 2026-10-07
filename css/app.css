@@ -57,6 +57,10 @@
   --header-h: 64px;
   --nav-h: 72px;
   --safe-bottom: env(safe-area-inset-bottom, 0px);
+  /* What the bottom bar actually reserves for the home indicator. The full
+     inset left a band of empty white under the icons; everything that has to
+     clear the nav uses this so the numbers cannot drift apart. */
+  --nav-inset: min(env(safe-area-inset-bottom, 0px), 10px);
 }
 
 /* Base */
@@ -102,10 +106,13 @@ body {
   /* Height = the bar itself PLUS the iOS status-bar/notch inset, so the inner
      content sits fully below the status bar in standalone (home-screen) mode.
      (With border-box, baking the inset into a fixed height squashed the bar.) */
-  height: calc(var(--header-h) + env(safe-area-inset-top, 0px));
+  /* The inset alone puts the title hard against the status bar, where iOS
+     fades its own gradient over the top of it. A few px of clearance keeps
+     the name clear of it. */
+  height: calc(var(--header-h) + env(safe-area-inset-top, 0px) + 8px);
   background: var(--green-900);
   flex-shrink: 0;
-  padding-top: env(safe-area-inset-top, 0px);
+  padding-top: calc(env(safe-area-inset-top, 0px) + 8px);
   z-index: 10;
 }
 
@@ -224,13 +231,16 @@ body {
   height: 100%;
   overflow-y: auto;
   -webkit-overflow-scrolling: touch;
-  padding: 16px 16px calc(var(--nav-h) + var(--safe-bottom) + 16px);
+  padding: 16px 16px calc(var(--nav-h) + var(--nav-inset) + 16px);
 }
 
 /* Bottom nav */
 #bottom-nav {
-  height: calc(var(--nav-h) + var(--safe-bottom));
-  padding-bottom: var(--safe-bottom);
+  /* Clearance for the home indicator, not the whole 34pt inset — the full
+     amount left a band of empty white under the icons taller than the labels.
+     The icons sit at the top of the bar, so they are well clear either way. */
+  height: calc(var(--nav-h) + var(--nav-inset));
+  padding-bottom: var(--nav-inset);
   background: var(--surface);
   border-top: 1px solid var(--border);
   display: flex;
@@ -839,7 +849,7 @@ select.field-input { appearance: none; background-image: url("data:image/svg+xml
 
 #toast-container {
   position: fixed;
-  bottom: calc(var(--nav-h) + var(--safe-bottom) + 12px);
+  bottom: calc(var(--nav-h) + var(--nav-inset) + 12px);
   left: 50%;
   transform: translateX(-50%);
   display: flex;
