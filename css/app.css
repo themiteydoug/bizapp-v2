@@ -1821,3 +1821,19 @@ select.field-input { appearance: none; background-image: url("data:image/svg+xml
   flex: 1; overflow-y: auto; -webkit-overflow-scrolling: touch;
   padding: 16px 16px calc(var(--safe-bottom, 0px) + 24px);
 }
+
+/* Day stepper — the log keeps this week and last, so yesterday is reachable */
+.clean-daynav { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.clean-step {
+  flex: none; width: 32px; height: 32px; border-radius: 50%;
+  border: 1px solid var(--border-md); background: var(--surface-2);
+  color: var(--text-2); font-size: 18px; line-height: 1; cursor: pointer;
+  font-family: var(--font);
+}
+.clean-step:disabled { opacity: .3; cursor: default; }
+.clean-tick.is-past {
+  border-style: dashed; background: transparent;
+  color: var(--green-400); cursor: default;
+}
+.clean-row.is-done .clean-tick.is-past { background: var(--green-600); border-style: solid; color: #fff; }
+.clean-note { font-size: 11px; color: var(--text-3); text-align: center; margin-top: 14px; }

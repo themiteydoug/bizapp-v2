@@ -353,10 +353,41 @@ const Store = (() => {
     return list;
   }
 
+  // Retention: this week and the week before, nothing older. Nobody goes back
+  // further than that, and the log rides in the shared snapshot every device
+  // pulls — left alone it would grow for ever.
+  function cleanRetainFrom() {
+    try {
+      const d = new Date(Holidays.getWeekStart() + 'T12:00:00Z');
+      d.setUTCDate(d.getUTCDate() - 7);           // back to last week's Monday
+      return d.toISOString().slice(0, 10);
+    } catch {
+      return '0000-01-01';                        // can't work it out — keep everything
+    }
+  }
+
+  function rawCleanLog() {
+    try { return JSON.parse(localStorage.getItem(KEYS.CLEAN_LOG) || '[]'); } catch { return []; }
+  }
+
   function getCleanLog(dateStr) {
-    let all = [];
-    try { all = JSON.parse(localStorage.getItem(KEYS.CLEAN_LOG) || '[]'); } catch {}
+    const from = cleanRetainFrom();
+    const all = rawCleanLog().filter(r => (r.date || '') >= from);
     return dateStr ? all.filter(r => r.date === dateStr) : all;
+  }
+
+  // Drop expired ticks from this device and from the shared store. The rule is
+  // date-based and identical everywhere, so every device prunes the same records
+  // on its own — no tombstones required, and so nothing accumulates in their
+  // place. Safe to call as often as you like; it does nothing once it's clean.
+  function pruneCleanLog() {
+    const from = cleanRetainFrom();
+    const all = rawCleanLog();
+    const expired = all.filter(r => (r.date || '') < from);
+    if (!expired.length) return 0;
+    localStorage.setItem(KEYS.CLEAN_LOG, JSON.stringify(all.filter(r => (r.date || '') >= from)));
+    expired.forEach(r => { try { window.Sync && window.Sync.delItem('cleanLog', r.id); } catch {} });
+    return expired.length;
   }
 
   // Each tick gets its own id. Unticking tombstones that id permanently, and a
@@ -364,12 +395,14 @@ const Store = (() => {
   // earlier tick for the same job today is retired the same way, which keeps
   // one live record per job per day.
   function retireCleanTicks(dateStr, jobId) {
-    const gone = getCleanLog(dateStr).filter(r => r.jobId === jobId);
-    const kept = getCleanLog().filter(r => !(r.date === dateStr && r.jobId === jobId));
+    // Works on the raw list, not the retention-filtered view, so a write never
+    // quietly drops expired records behind pruneCleanLog's back.
+    const gone = rawCleanLog().filter(r => r.date === dateStr && r.jobId === jobId);
+    const kept = rawCleanLog().filter(r => !(r.date === dateStr && r.jobId === jobId));
     localStorage.setItem(KEYS.CLEAN_LOG, JSON.stringify(kept));
     gone.forEach(r => {
       addTombstone(r.id);
-      try { window.Sync && Sync.delItem('cleanLog', r.id); } catch {}
+      try { window.Sync && window.Sync.delItem('cleanLog', r.id); } catch {}
     });
     return kept;
   }
@@ -377,7 +410,10 @@ const Store = (() => {
   function logCleanJob(dateStr, jobId, staff) {
     const kept = retireCleanTicks(dateStr, jobId);
     const rec = {
-      id:        `clean_${dateStr}_${jobId}_${Date.now().toString(36)}`,
+      // Random tail as well as the clock: ticking, unticking and ticking again
+      // inside one millisecond would otherwise reuse an id that has just been
+      // tombstoned, and the merge would throw the new tick away as deleted.
+      id:        `clean_${dateStr}_${jobId}_${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`,
       date:      dateStr,
       jobId,
       staffId:   staff?.id || '',
@@ -396,6 +432,7 @@ const Store = (() => {
   return {
     getStaff, saveStaff, updateStaffMember,
     getCleanJobs, saveCleanJobs, getCleanLog, logCleanJob, clearCleanJob,
+    pruneCleanLog, cleanRetainFrom,
     getInvoices, saveInvoice, updateInvoice, deleteInvoice,
     getTombstones,
     getSupplierFingerprints, saveSupplierFingerprints,
