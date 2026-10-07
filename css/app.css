@@ -61,7 +61,14 @@
 
 /* Base */
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-html { font-size: 16px; -webkit-text-size-adjust: 100%; }
+html {
+  font-size: 16px;
+  -webkit-text-size-adjust: 100%;
+  /* The canvas — what shows past the end of the app, by the home indicator.
+     body stays the header's green for the status bar strip iOS samples, but
+     painting the canvas from here keeps the bottom matching the nav. */
+  background: var(--surface);
+}
 body {
   font-family: var(--font);
   /* iOS fills the status bar strip from the DOCUMENT's background colour, not
@@ -142,7 +149,10 @@ body {
   margin-top: 1px;
 }
 
-.header-titles { display: flex; flex-direction: column; }
+.header-titles { display: flex; flex-direction: column; justify-content: center; }
+/* The role badge belongs beside the name. Stacked, the three lines overflowed
+   the 64px bar and the centred overflow pushed "PCW" up under the status bar. */
+.header-name-row { display: flex; align-items: center; gap: 6px; }
 
 .icon-btn {
   width: 38px;
