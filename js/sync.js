@@ -31,9 +31,11 @@ const Sync = (() => {
     staff:                'bizops_staff',
     supplierFingerprints: 'bizops_supplier_fp',
     tombstones:           'bizops_tombstones',
+    cleanJobs:            'bizops_clean_jobs',
+    cleanLog:             'bizops_clean_log',
   };
-  const COLLECTIONS = ['invoices', 'cashRecs', 'tsPushes'];
-  const SINGLETONS  = ['settings', 'tsAdjustments', 'staff', 'supplierFingerprints'];
+  const COLLECTIONS = ['invoices', 'cashRecs', 'tsPushes', 'cleanLog'];
+  const SINGLETONS  = ['settings', 'tsAdjustments', 'staff', 'supplierFingerprints', 'cleanJobs'];
 
   let timer = null;
   let available = true;   // flips false if the server says it's not configured
