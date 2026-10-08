@@ -6,10 +6,16 @@
  *
  * Environment variables required:
  *   XERO_CLIENT_ID  — your Xero app client ID
- *   APP_ORIGIN      — https://bizapp-v2.vercel.app
+ *   APP_ORIGIN      — https://pcw.spottedcod.com.au
  */
 
-const ALLOWED_ORIGIN = process.env.APP_ORIGIN || 'https://bizapp-v2.vercel.app';
+// Sanitised, not used raw. A value pasted into the dashboard with a trailing
+// newline looks identical there but is illegal in a header value: setHeader()
+// throws ERR_INVALID_CHAR and this function 500s before running any of its own
+// logic. That took out PIN login, sync and Xero at once. Also drops a trailing
+// slash so origin comparisons stay stable.
+const ALLOWED_ORIGIN = (process.env.APP_ORIGIN || 'https://pcw.spottedcod.com.au')
+  .replace(/[\r\n\t]/g, '').trim().replace(/\/+$/, '');
 
 function setCors(res) {
   res.setHeader('Access-Control-Allow-Origin', ALLOWED_ORIGIN);

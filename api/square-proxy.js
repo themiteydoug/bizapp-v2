@@ -7,7 +7,7 @@
  *   SQUARE_ACCESS_TOKEN   — your Square production access token
  *   SQUARE_LOCATION_ID    — your Square location ID
  *   SQUARE_ENVIRONMENT    — 'production' or 'sandbox'
- *   APP_ORIGIN            — https://bizapp-v2.vercel.app
+ *   APP_ORIGIN            — https://pcw.spottedcod.com.au
  */
 
 const SQUARE_BASE = process.env.SQUARE_ENVIRONMENT === 'sandbox'
@@ -28,7 +28,13 @@ const ALLOWED_ENDPOINTS = [
   '/payouts',
 ];
 
-const ALLOWED_ORIGIN = process.env.APP_ORIGIN || 'https://bizapp-v2.vercel.app';
+// Sanitised, not used raw. A value pasted into the dashboard with a trailing
+// newline looks identical there but is illegal in a header value: setHeader()
+// throws ERR_INVALID_CHAR and this function 500s before running any of its own
+// logic. That took out PIN login, sync and Xero at once. Also drops a trailing
+// slash so origin comparisons stay stable.
+const ALLOWED_ORIGIN = (process.env.APP_ORIGIN || 'https://pcw.spottedcod.com.au')
+  .replace(/[\r\n\t]/g, '').trim().replace(/\/+$/, '');
 
 /**
  * Response trimming (opt in with _trim=1)

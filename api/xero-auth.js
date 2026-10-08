@@ -10,7 +10,13 @@
 
 const xero = require('../lib/xero');
 
-const ALLOWED_ORIGIN = process.env.APP_ORIGIN || 'https://bizapp-v2.vercel.app';
+// Sanitised, not used raw. A value pasted into the dashboard with a trailing
+// newline looks identical there but is illegal in a header value: setHeader()
+// throws ERR_INVALID_CHAR and this function 500s before running any of its own
+// logic. That took out PIN login, sync and Xero at once. Also drops a trailing
+// slash so origin comparisons stay stable.
+const ALLOWED_ORIGIN = (process.env.APP_ORIGIN || 'https://pcw.spottedcod.com.au')
+  .replace(/[\r\n\t]/g, '').trim().replace(/\/+$/, '');
 
 function setCors(res) {
   res.setHeader('Access-Control-Allow-Origin', ALLOWED_ORIGIN);
@@ -43,7 +49,7 @@ module.exports = async (req, res) => {
     if (action === 'exchange') {
       if (!code) return res.status(400).json({ error: 'Missing code' });
       const redirectUri = process.env.XERO_REDIRECT_URI
-        || 'https://bizapp-v2.vercel.app/xero-callback.html';
+        || 'https://pcw.spottedcod.com.au/xero-callback.html';
 
       const { ok, status, data } = await xero.exchangeCode(code, redirectUri);
       if (!ok) {

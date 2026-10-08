@@ -13,7 +13,9 @@
 
 module.exports = async (req, res) => {
   const origin  = req.headers.origin || '';
-  const allowed = process.env.APP_ORIGIN || '';
+  // Sanitised — a trailing newline pasted into the dashboard is invisible there
+  // but breaks both the header below and the comparison further down.
+  const allowed = (process.env.APP_ORIGIN || '').replace(/[\r\n\t]/g, '').trim().replace(/\/+$/, '');
 
   res.setHeader('Access-Control-Allow-Origin', allowed || '*');
 
