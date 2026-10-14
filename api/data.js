@@ -18,13 +18,27 @@
  * back to local-only mode — nothing breaks.
  */
 
-// Sanitised, not used raw. A value pasted into the dashboard with a trailing
-// newline looks identical there but is illegal in a header value: setHeader()
-// throws ERR_INVALID_CHAR and this function 500s before running any of its own
-// logic. That took out PIN login, sync and Xero at once. Also drops a trailing
-// slash so origin comparisons stay stable.
-const ALLOWED_ORIGIN = (process.env.APP_ORIGIN || 'https://pcw.spottedcod.com.au')
-  .replace(/[\r\n\t]/g, '').trim().replace(/\/+$/, '');
+// The app answers on more than one address while a domain move settles, and a
+// device whose home-screen icon still points at the old one would otherwise be
+// able to READ but not WRITE: browsers omit Origin on a same-origin GET but
+// send it on a POST, so every pull passed and every push was rejected 403 —
+// silently, because a failed write says nothing. Set APP_ORIGIN to a
+// comma-separated list; the first entry is the canonical one.
+//
+// Sanitised, not used raw: a value pasted into the dashboard with a trailing
+// newline looks identical there but is illegal in a header value, and
+// setHeader() then throws ERR_INVALID_CHAR before the function runs at all.
+const ALLOWED_ORIGINS = (process.env.APP_ORIGIN || 'https://pcw.spottedcod.com.au,https://bizapp-v2.vercel.app')
+  .replace(/[\r\n\t]/g, '')
+  .split(',')
+  .map(s => s.trim().replace(/\/+$/, ''))
+  .filter(Boolean);
+
+const normOrigin = s => (s || '').trim().replace(/\/+$/, '').toLowerCase();
+const originAllowed = o => !o || ALLOWED_ORIGINS.some(a => normOrigin(a) === normOrigin(o));
+// Echo back the caller's own origin when we trust it, so the CORS header is
+// right for whichever address the device is on.
+const originHeader = o => (o && originAllowed(o)) ? o.trim().replace(/\/+$/, '') : ALLOWED_ORIGINS[0];
 const KV_URL   = process.env.KV_REST_API_URL  || process.env.UPSTASH_REDIS_REST_URL;
 const KV_TOKEN = process.env.KV_REST_API_TOKEN || process.env.UPSTASH_REDIS_REST_TOKEN;
 
@@ -37,8 +51,9 @@ const SINGLETONS  = ['settings', 'tsAdjustments', 'staff', 'supplierFingerprints
 // polling it outright cost hundreds of megabytes a day per open device.
 const REV_KEY = PREFIX + 'rev';
 
-function cors(res) {
-  res.setHeader('Access-Control-Allow-Origin', ALLOWED_ORIGIN);
+function cors(res, req) {
+  res.setHeader('Access-Control-Allow-Origin', originHeader(req && req.headers.origin));
+  res.setHeader('Vary', 'Origin');
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
   // Shared live data — never let a CDN or browser serve a stale copy.
@@ -65,17 +80,15 @@ function safeParse(v) {
 }
 
 module.exports = async (req, res) => {
-  cors(res);
+  cors(res, req);
   if (req.method === 'OPTIONS') return res.status(204).end();
 
   if (!KV_URL || !KV_TOKEN) {
     return res.status(503).json({ error: 'KV not configured' });
   }
 
-  const origin = req.headers.origin || '';
-  const norm = s => (s || '').replace(/\/+$/, '').toLowerCase();
-  if (origin && norm(origin) !== norm(ALLOWED_ORIGIN)) {
-    return res.status(403).json({ error: 'Forbidden' });
+  if (!originAllowed(req.headers.origin)) {
+    return res.status(403).json({ error: 'Forbidden', _debug: { origin: req.headers.origin } });
   }
 
   try {

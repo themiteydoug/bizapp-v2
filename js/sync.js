@@ -62,8 +62,20 @@ const Sync = (() => {
         body: JSON.stringify(payload),
       });
       if (res.status === 503) { available = false; return false; }
-      return res.ok;
-    } catch { return false; }
+      // A rejected write used to return quietly, so a device that could still
+      // READ looked perfectly synced while nothing it entered ever left it.
+      // Anything that isn't an OK now shows in the header and the console.
+      if (!res.ok) {
+        console.warn(`[sync] write refused: ${res.status} ${payload.op || ''}`);
+        setConnected(false);
+        return false;
+      }
+      setConnected(true);
+      return true;
+    } catch {
+      setConnected(false);
+      return false;
+    }
   }
 
   // Mirror one collection item (invoice / cash rec / ts push) to the server.
