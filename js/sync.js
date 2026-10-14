@@ -288,6 +288,19 @@ const Sync = (() => {
     }
   }
 
+  // Force a full snapshot pull, ignoring the revision check. The pull's merge is
+  // what re-pushes collection items the server is missing, so this is the only
+  // thing that rescues data stranded by an earlier failed write — a device that
+  // was only ever *resumed* (a PWA coming back from the background never
+  // reloads) would otherwise take the cheap revision path forever and never
+  // notice it was holding a week of invoices nobody else could see.
+  async function resync() {
+    lastRev = null;
+    available = true;           // give a device that gave up another chance
+    await pull();
+    return pendingCount();
+  }
+
   async function init() {
     if (CONFIG.FEATURES.DEMO_MODE) return;
     reportPending();        // a dirty key survived the reload — say so at once
@@ -304,7 +317,7 @@ const Sync = (() => {
     });
   }
 
-  return { init, pull, flush, pushItem, pushKey, delItem, putPhoto, getPhoto, delPhoto,
+  return { init, pull, flush, resync, pushItem, pushKey, delItem, putPhoto, getPhoto, delPhoto,
            pendingCount, isConnected: () => connected === true };
 
 })();
