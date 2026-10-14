@@ -407,9 +407,31 @@ const App = (() => {
   // ── Sync button ───────────────────────────────
 
   function bindSync() {
-    document.getElementById('sync-btn')?.addEventListener('click', () => {
-      if (activePage === 'dashboard') Dashboard.refresh();
-      else toast('Syncing…');
+    const btn = document.getElementById('sync-btn');
+    if (!btn) return;
+    let running = false;
+
+    // This button did not sync. On the dashboard it refetched Square and Xero;
+    // on every other page it showed a "Syncing…" toast and did nothing
+    // whatsoever. It never touched the shared store — which is the only reason
+    // anyone presses it. It now forces a full resync and says what happened.
+    btn.addEventListener('click', async () => {
+      if (running) return;
+      running = true;
+      btn.classList.add('spinning');
+      try {
+        const owed = await Sync.resync();
+        if (activePage === 'dashboard') await Dashboard.refresh();
+        if (!Sync.isConnected())  toast('No connection — nothing was sent', 'error');
+        else if (owed > 0)        toast(`${owed} change${owed === 1 ? '' : 's'} still waiting — retrying`, 'warning');
+        else                      toast('Up to date');
+      } catch (e) {
+        console.warn('[sync] manual resync failed', e);
+        toast('Sync failed', 'error');
+      } finally {
+        btn.classList.remove('spinning');
+        running = false;
+      }
     });
   }
 

@@ -197,12 +197,52 @@ async function testBadPayloadDropped() {
     pendingOf(Sync) === 0, `pendingCount() = ${pendingOf(Sync)}`);
 }
 
+// ── E. resync() rescues data stranded before the page loaded ──────────────
+// A PWA resumed from the background never reloads, so the revision check sends
+// every pull down the cheap path and the merge that re-pushes missing items
+// never runs. The sync button has to be able to force it.
+async function testResyncRescuesStrandedData() {
+  console.log('E. a forced resync re-pushes items the server never received');
+
+  // Eight days of invoices sitting in local storage that the server has never
+  // seen — exactly the state the domain move left devices in.
+  const stranded = [{ id: 'inv_x', date: '2026-10-07', subtotal: 300 },
+                    { id: 'inv_y', date: '2026-10-09', subtotal: 450 }];
+  const ls = makeStore({ bizops_invoices: JSON.stringify(stranded) });
+
+  const { Sync, calls } = boot(ls, async (url, opts) => {
+    if (opts && opts.method === 'POST') return json({ ok: true, rev: 7 });
+    if (String(url).includes('rev=1')) return json({ rev: 7 });
+    return json({ rev: 7, invoices: [], cashRecs: [], tsPushes: [], cleanLog: [] });
+  });
+
+  // Pull once so the revision is known, then pull again: the revision has not
+  // moved, so this is the state a resumed app is stuck in.
+  await Sync.pull();
+  const after = calls.length;
+  await Sync.pull();
+  check('a plain pull on an unchanged revision sends nothing',
+    calls.length === after, `extra POSTs: ${JSON.stringify(calls.slice(after))}`);
+
+  if (typeof Sync.resync !== 'function') {
+    check('resync() exists', false, 'Sync.resync is not a function');
+    return;
+  }
+  await Sync.resync();
+  await new Promise(r => setImmediate(r));
+
+  const sent = calls.filter(c => c.op === 'putItem' && c.coll === 'invoices').map(c => c.id);
+  check('both stranded invoices are pushed up',
+    sent.includes('inv_x') && sent.includes('inv_y'), `pushed: ${JSON.stringify(sent)}`);
+}
+
 (async () => {
   console.log('sync.js regression tests\n');
   await testDirtySurvivesReload();
   await testBacklogRetriedWithoutRevChange();
   await testHeaderReportsBacklog();
   await testBadPayloadDropped();
+  await testResyncRescuesStrandedData();
   console.log(failures ? `\n${failures} failing check(s)` : '\nall checks passed');
   process.exit(failures ? 1 : 0);
 })();
