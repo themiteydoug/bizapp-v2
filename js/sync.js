@@ -53,8 +53,47 @@ const Sync = (() => {
     return arr.slice().sort((a, b) => String(ts(b)).localeCompare(String(ts(a))));
   }
 
+  // ── Outbox: writes the server hasn't accepted yet ──────────────────────
+  // Every write used to be fire-and-forget, so a refused or dropped one was
+  // gone: eight days of invoices were entered during the domain move and never
+  // left the devices they were typed on, while the header still said "Synced".
+  // Failed writes now stay here, are retried on every tick, and are counted in
+  // the header so a backlog can never be invisible again.
+  const outbox = new Map();   // descriptor → payload (re-queuing replaces)
+
+  const outboxKey = p =>
+      p.op === 'putItem' || p.op === 'delItem' ? `${p.op}:${p.coll}:${p.id}`
+    : p.op === 'putKey'                        ? `putKey:${p.key}`
+    :                                            `${p.op}:${p.id || ''}`;
+
+  // Singletons with a local edit the server hasn't confirmed. Persisted, because
+  // an in-memory set is wiped by a reload — and the pull below overwrites local
+  // singletons from the server, so an unsynced staff or timesheet edit was
+  // silently destroyed the next time the app opened.
+  const DIRTY_LS = 'bizops_sync_dirty';
+  const dirtyKeys = (() => {
+    try { return new Set(JSON.parse(localStorage.getItem(DIRTY_LS) || '[]')); }
+    catch { return new Set(); }
+  })();
+  const saveDirty  = () => { try { localStorage.setItem(DIRTY_LS, JSON.stringify([...dirtyKeys])); } catch {} };
+  const markDirty  = k => { if (!dirtyKeys.has(k)) { dirtyKeys.add(k); saveDirty(); } };
+  const clearDirty = k => { if (dirtyKeys.delete(k)) saveDirty(); };
+
+  // One count for "things this device still owes the server".
+  function pendingCount() {
+    const all = new Set(outbox.keys());
+    for (const k of dirtyKeys) all.add('putKey:' + k);
+    return all.size;
+  }
+  function reportPending() {
+    if (window.App && typeof App.onSyncPending === 'function') App.onSyncPending(pendingCount());
+  }
+
   async function post(payload) {
     if (!available || CONFIG.FEATURES.DEMO_MODE) return false;
+    const key = outboxKey(payload);
+    let ok = false;
+    let retryable = true;
     try {
       const res = await fetch(API, {
         method: 'POST',
@@ -65,16 +104,33 @@ const Sync = (() => {
       // A rejected write used to return quietly, so a device that could still
       // READ looked perfectly synced while nothing it entered ever left it.
       // Anything that isn't an OK now shows in the header and the console.
-      if (!res.ok) {
+      if (res.ok) {
+        ok = true;
+        setConnected(true);
+      } else {
         console.warn(`[sync] write refused: ${res.status} ${payload.op || ''}`);
+        // 400 is a malformed payload: the server will never accept it, and
+        // re-sending it every 30 seconds would wedge the queue behind it and
+        // hold the header at "1 to sync" forever. Everything else (403 while a
+        // domain setting is wrong, 5xx, a dropped connection) is worth retrying.
+        retryable = res.status !== 400;
         setConnected(false);
-        return false;
       }
-      setConnected(true);
-      return true;
     } catch {
       setConnected(false);
-      return false;
+    }
+    if (ok || !retryable) outbox.delete(key); else outbox.set(key, payload);
+    reportPending();
+    return ok;
+  }
+
+  // Re-send the backlog. Runs every tick, deliberately outside the revision
+  // check below: a device that was offline when it saved must not sit on its
+  // backlog until some other device happens to write something.
+  async function flush() {
+    if (!outbox.size || !available || CONFIG.FEATURES.DEMO_MODE) return;
+    for (const payload of [...outbox.values()]) {
+      if (!(await post(payload))) return;   // still down — try again next tick
     }
   }
 
@@ -84,21 +140,17 @@ const Sync = (() => {
     post({ op: 'putItem', coll, id: item.id, value: item });
   }
 
-  // Singletons with a local edit that the server hasn't confirmed yet. While a
-  // key is "dirty" a pull must NOT overwrite the local copy (that would wipe a
-  // fresh edit, e.g. a manager's timesheet hour change). Cleared once the server
-  // acknowledges the exact value we sent.
-  const dirtyKeys = new Set();
-
   // Mirror a whole singleton (settings / tsAdjustments / staff / fingerprints /
-  // tombstones) to the server.
+  // tombstones) to the server. While a key is dirty a pull must NOT overwrite
+  // the local copy — that would wipe a fresh edit, e.g. a manager's timesheet
+  // hour change.
   function pushKey(key, value) {
     if (!(SINGLETONS.includes(key) || key === 'tombstones') || value == null) return;
-    dirtyKeys.add(key);
+    markDirty(key);
     const sent = JSON.stringify(value);
     post({ op: 'putKey', key, value }).then(ok => {
       // Only clear dirty if no newer local edit happened while this was in flight.
-      if (ok && localStorage.getItem(LS[key]) === sent) dirtyKeys.delete(key);
+      if (ok && localStorage.getItem(LS[key]) === sent) { clearDirty(key); reportPending(); }
     });
   }
 
@@ -163,6 +215,7 @@ const Sync = (() => {
 
   async function pull() {
     if (CONFIG.FEATURES.DEMO_MODE || !available) return;
+    await flush();                        // clear any backlog before reading
     if (!(await revChanged())) return;
     let snap;
     try {
@@ -213,18 +266,20 @@ const Sync = (() => {
     // never overwritten — we keep the local value and re-push until confirmed, so
     // unsynced edits (e.g. timesheet adjustments) are never lost.
     for (const key of SINGLETONS) {
+      const localRaw  = localStorage.getItem(LS[key]);
+      const serverRaw = snap[key] != null ? JSON.stringify(snap[key]) : null;
+
       if (dirtyKeys.has(key)) {
-        const localRaw = localStorage.getItem(LS[key]);
+        // Already up there (a push landed, or another device sent the same
+        // thing) — stop claiming local is authoritative for this key.
+        if (serverRaw !== null && localRaw === serverRaw) { clearDirty(key); reportPending(); continue; }
         if (localRaw) { try { pushKey(key, JSON.parse(localRaw)); } catch {} }
         continue;
       }
-      const serverVal = snap[key];
-      if (serverVal != null) {
-        const next = JSON.stringify(serverVal);
-        if (localStorage.getItem(LS[key]) !== next) { localStorage.setItem(LS[key], next); changed = true; }
-      } else {
-        const localRaw = localStorage.getItem(LS[key]);
-        if (localRaw) { try { pushKey(key, JSON.parse(localRaw)); } catch {} }
+      if (serverRaw !== null) {
+        if (localRaw !== serverRaw) { localStorage.setItem(LS[key], serverRaw); changed = true; }
+      } else if (localRaw) {
+        try { pushKey(key, JSON.parse(localRaw)); } catch {}
       }
     }
 
@@ -235,6 +290,7 @@ const Sync = (() => {
 
   async function init() {
     if (CONFIG.FEATURES.DEMO_MODE) return;
+    reportPending();        // a dirty key survived the reload — say so at once
     await pull();
     if (timer) clearInterval(timer);
     // Only poll while the app is actually visible — don't keep pulling from a
@@ -248,7 +304,8 @@ const Sync = (() => {
     });
   }
 
-  return { init, pull, pushItem, pushKey, delItem, putPhoto, getPhoto, delPhoto, isConnected: () => connected === true };
+  return { init, pull, flush, pushItem, pushKey, delItem, putPhoto, getPhoto, delPhoto,
+           pendingCount, isConnected: () => connected === true };
 
 })();
 

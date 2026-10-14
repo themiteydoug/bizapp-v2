@@ -140,15 +140,31 @@ const App = (() => {
   }
 
   // Called by Sync to reflect live-sync connectivity in the header badge.
+  // Writes this device still owes the server outrank connectivity: "Synced"
+  // next to data that never left the phone is how eight days of invoices went
+  // missing without anyone noticing.
+  let syncPending = 0;
+
   function onSyncStatus(isConnected) {
     const wrap = document.getElementById('sync-status');
     const dot  = wrap?.querySelector('.sync-dot');
     const txt  = document.getElementById('sync-status-text');
     if (!wrap || !dot || !txt) return;
     wrap.style.display = 'flex';
-    dot.classList.toggle('connected', !!isConnected);
-    dot.classList.toggle('offline', !isConnected);
-    txt.textContent = isConnected ? 'Synced' : 'Offline';
+    const waiting = syncPending > 0;
+    dot.classList.toggle('connected', !!isConnected && !waiting);
+    dot.classList.toggle('offline', !isConnected || waiting);
+    txt.textContent = waiting ? `${syncPending} to sync`
+                    : isConnected ? 'Synced' : 'Offline';
+    wrap.title = waiting
+      ? `${syncPending} change${syncPending === 1 ? '' : 's'} saved on this device but not yet on the server — it keeps retrying while the app is open`
+      : 'Live data sync across devices';
+  }
+
+  // Called by Sync whenever the unsent-write count changes.
+  function onSyncPending(n) {
+    syncPending = n || 0;
+    onSyncStatus(Sync.isConnected());
   }
 
   // Called by Sync when the shared data changed — re-render the current view
@@ -485,7 +501,8 @@ const App = (() => {
     boot();
   }
 
-  return { nav, toast, openSettings, refreshSettings, applyRoleUI, getWeek, setWeek, onDataChanged, onSyncStatus, getActivePage: () => activePage };
+  return { nav, toast, openSettings, refreshSettings, applyRoleUI, getWeek, setWeek, onDataChanged, onSyncStatus,
+    onSyncPending, getActivePage: () => activePage };
 
 })();
 
