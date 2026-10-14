@@ -18,12 +18,25 @@
  * back to local-only mode — nothing breaks.
  */
 
-// The app answers on more than one address while a domain move settles, and a
-// device whose home-screen icon still points at the old one would otherwise be
-// able to READ but not WRITE: browsers omit Origin on a same-origin GET but
-// send it on a POST, so every pull passed and every push was rejected 403 —
-// silently, because a failed write says nothing. Set APP_ORIGIN to a
-// comma-separated list; the first entry is the canonical one.
+// Which addresses may write here.
+//
+// A device whose home-screen icon still points at a previous address would
+// otherwise be able to READ but not WRITE: browsers omit Origin on a
+// same-origin GET but send it on a POST, so every pull passes and every push is
+// rejected 403 — silently, because a failed write says nothing.
+//
+// The rule that matters is the LAST one: a request whose Origin is the very
+// host it arrived on is always allowed. Every address this app answers on is
+// one of ours, so no device can be locked out of writing by an APP_ORIGIN that
+// has fallen behind a domain move. That is not hypothetical — APP_ORIGIN was
+// pointed at the new domain alone and every write from every device was
+// refused for a week without a word. Listing both addresses in the fallback
+// below did NOT fix it: the variable overrides the fallback, so the fallback
+// is only ever read when nobody has set the variable at all.
+//
+// This grants nothing to a third party. A page on another site sends its own
+// Origin while Host stays ours, so it still fails; a forged Host that does not
+// name us never reaches this deployment.
 //
 // Sanitised, not used raw: a value pasted into the dashboard with a trailing
 // newline looks identical there but is illegal in a header value, and
@@ -35,10 +48,25 @@ const ALLOWED_ORIGINS = (process.env.APP_ORIGIN || 'https://pcw.spottedcod.com.a
   .filter(Boolean);
 
 const normOrigin = s => (s || '').trim().replace(/\/+$/, '').toLowerCase();
-const originAllowed = o => !o || ALLOWED_ORIGINS.some(a => normOrigin(a) === normOrigin(o));
+
+// Hostname of an Origin, without scheme or port — "https://pcw.x.au" → "pcw.x.au"
+const hostOf = s => normOrigin(s).replace(/^[a-z]+:\/\//, '').split('/')[0].split(':')[0];
+
+// Did this request come from a page served by the same host it is addressing?
+const sameHost = (origin, host) => {
+  const o = hostOf(origin), h = hostOf(host);
+  return !!o && !!h && o === h;
+};
+
+const originAllowed = (o, host) =>
+     !o
+  || ALLOWED_ORIGINS.some(a => normOrigin(a) === normOrigin(o))
+  || sameHost(o, host);
+
 // Echo back the caller's own origin when we trust it, so the CORS header is
 // right for whichever address the device is on.
-const originHeader = o => (o && originAllowed(o)) ? o.trim().replace(/\/+$/, '') : ALLOWED_ORIGINS[0];
+const originHeader = (o, host) =>
+  (o && originAllowed(o, host)) ? o.trim().replace(/\/+$/, '') : ALLOWED_ORIGINS[0];
 const KV_URL   = process.env.KV_REST_API_URL  || process.env.UPSTASH_REDIS_REST_URL;
 const KV_TOKEN = process.env.KV_REST_API_TOKEN || process.env.UPSTASH_REDIS_REST_TOKEN;
 
@@ -52,7 +80,8 @@ const SINGLETONS  = ['settings', 'tsAdjustments', 'staff', 'supplierFingerprints
 const REV_KEY = PREFIX + 'rev';
 
 function cors(res, req) {
-  res.setHeader('Access-Control-Allow-Origin', originHeader(req && req.headers.origin));
+  res.setHeader('Access-Control-Allow-Origin',
+    originHeader(req && req.headers.origin, req && req.headers.host));
   res.setHeader('Vary', 'Origin');
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
@@ -87,7 +116,7 @@ module.exports = async (req, res) => {
     return res.status(503).json({ error: 'KV not configured' });
   }
 
-  if (!originAllowed(req.headers.origin)) {
+  if (!originAllowed(req.headers.origin, req.headers.host)) {
     return res.status(403).json({ error: 'Forbidden', _debug: { origin: req.headers.origin } });
   }
 
