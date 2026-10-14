@@ -11,13 +11,33 @@
  *   Add ANTHROPIC_API_KEY = sk-ant-...   then redeploy.
  */
 
-module.exports = async (req, res) => {
-  const origin  = req.headers.origin || '';
-  // Sanitised — a trailing newline pasted into the dashboard is invisible there
-  // but breaks both the header below and the comparison further down.
-  const allowed = (process.env.APP_ORIGIN || '').replace(/[\r\n\t]/g, '').trim().replace(/\/+$/, '');
+// The app answers on more than one address while a domain move settles, and a
+// device whose home-screen icon still points at the old one would otherwise be
+// able to READ but not WRITE: browsers omit Origin on a same-origin GET but
+// send it on a POST, so every pull passed and every push was rejected 403 —
+// silently, because a failed write says nothing. Set APP_ORIGIN to a
+// comma-separated list; the first entry is the canonical one.
+//
+// Sanitised, not used raw: a value pasted into the dashboard with a trailing
+// newline looks identical there but is illegal in a header value, and
+// setHeader() then throws ERR_INVALID_CHAR before the function runs at all.
+const ALLOWED_ORIGINS = (process.env.APP_ORIGIN || 'https://pcw.spottedcod.com.au,https://bizapp-v2.vercel.app')
+  .replace(/[\r\n\t]/g, '')
+  .split(',')
+  .map(s => s.trim().replace(/\/+$/, ''))
+  .filter(Boolean);
 
-  res.setHeader('Access-Control-Allow-Origin', allowed || '*');
+const normOrigin = s => (s || '').trim().replace(/\/+$/, '').toLowerCase();
+const originAllowed = o => !o || ALLOWED_ORIGINS.some(a => normOrigin(a) === normOrigin(o));
+// Echo back the caller's own origin when we trust it, so the CORS header is
+// right for whichever address the device is on.
+const originHeader = o => (o && originAllowed(o)) ? o.trim().replace(/\/+$/, '') : ALLOWED_ORIGINS[0];
+
+module.exports = async (req, res) => {
+  const origin = req.headers.origin || '';
+
+  res.setHeader('Access-Control-Allow-Origin', originHeader(origin));
+  res.setHeader('Vary', 'Origin');
 
   if (req.method === 'OPTIONS') {
     res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
@@ -29,11 +49,9 @@ module.exports = async (req, res) => {
     return res.status(405).json({ error: 'Method not allowed' });
   }
 
-  // Only allow requests from our own origin (when APP_ORIGIN is configured).
-  // Normalise trailing slash / case so a stray slash in APP_ORIGIN doesn't 403.
-  const norm = s => (s || '').replace(/\/+$/, '').toLowerCase();
-  if (allowed && origin && norm(origin) !== norm(allowed)) {
-    return res.status(403).json({ error: 'Forbidden', _debug: { origin, allowed } });
+  // Only requests from one of our own addresses.
+  if (!originAllowed(origin)) {
+    return res.status(403).json({ error: 'Forbidden', _debug: { origin, allowed: ALLOWED_ORIGINS } });
   }
 
   const apiKey = process.env.ANTHROPIC_API_KEY;
